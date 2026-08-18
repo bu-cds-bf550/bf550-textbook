@@ -17,7 +17,7 @@ Nine sections, same order, every chapter. **The order is the pedagogy** — stor
 | Where the numbers come from | Estimation, still in code |
 | The notation | The compression, **last**; feeds the decoder appendix |
 | A worked design | A complete Frame → Decompose → Select → Anticipate pass on an *analogous* problem — close enough to transfer, far enough not to leak the week's assignment |
-| How it lies to you | Assumptions and failure modes, with at least one **executed** failure |
+| When the model is wrong | Assumptions and failure modes, with at least one **executed** failure |
 | Practice problems | Ungraded, with worked solutions — see below |
 
 ## The non-negotiables
@@ -35,6 +35,31 @@ Nine sections, same order, every chapter. **The order is the pedagogy** — stor
    only exercises here. This is the safety property that lets the book be fully open to a
    student's AI tutor; the lint enforces a tripwire on instructor-repo vocabulary.
 
+## Learned writing the exemplar (ch. 3)
+
+8. **Every number in prose is a number a chunk printed.** Chunks execute at render time, so prose
+   that states a value the reader can see contradicted is worse than no value. Workflow: run the
+   chunks locally (a chunk-extractor script suffices), then write prose to the printed output —
+   loosely rounded ("about 120"), exactly quoted only where the chunk prints it.
+9. **Worked solutions live in collapsed callouts** — `::: {.callout-tip collapse="true"
+   title="Worked solution"}` — so the reader must act to see them. Solution *chunks* execute like
+   any other and follow the same seed rule.
+10. **Chapter openings return.** Where possible, the dataset the reader meets in "The problem" is
+    the one "Where the numbers come from" resolves — same seed, stated openly. The arc from
+    unexplained observation to recovered parameters is the chapter's shape, not decoration.
+11. **The boundary sweep is part of authoring, not review.** Before pushing, grep the chapter for
+    the current assignments' organisms, parameter values, and question vocabulary. The lint's
+    tripwire catches instructor-repo terms; only the author can catch the week's biology.
+
+## The Box register
+
+Every model encodes a necessarily simplified version of the process that generated the data, so
+every model is wrong somewhere — Box's *all models are wrong, but some are useful* [@box1976;
+@box1979], cited formally in chapter 3. Failure sections and practice problems are written in that
+register: model–world mismatch, violated assumptions, where the simplification stops holding and
+how you would know. Never anthropomorphize a model; it has no intent to describe — and the frame
+is not argued with in the text, it is simply absent. The lint enforces the vocabulary.
+
 ## Practice problems
 
 Five kinds, recurring in every chapter, so the shape of practice is stable while content varies:
@@ -44,7 +69,7 @@ Five kinds, recurring in every chapter, so the shape of practice is stable while
 | `predict-the-output` | Read code, commit to a prediction, then run |
 | `modify-the-story` | Change the generative story; say what changes downstream |
 | `hand-calculate` | Tiny instance, worked by hand |
-| `spot-the-lie` | Given subtly wrong output, find the violated assumption |
+| `spot-the-mismatch` | Given subtly wrong output, find where the model stopped matching the world |
 | `read-the-notation` | Translate a formula to prose/code or back |
 
 Each problem's frontmatter carries `kind`, an `objective` sentence (student-visible), the concept

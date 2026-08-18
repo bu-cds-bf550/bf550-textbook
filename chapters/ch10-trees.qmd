@@ -25,6 +25,6 @@ practice_problems: []
 ## Where the numbers come from
 ## The notation
 ## A worked design
-## How it lies to you
+## When the model is wrong
 ## Practice problems
 -->
