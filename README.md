@@ -16,6 +16,11 @@ quarto render                   # builds _book/
 Style contract: [`CONVENTIONS.md`](CONVENTIONS.md). Chapters follow a fixed nine-section anatomy
 (story → code → notation, in that order); every code chunk is seeded and meant to be read.
 
+## License
+
+- **Prose and figures:** [CC BY-NC 4.0](LICENSE) — share and adapt with attribution, not commercially.
+- **Code** (chunks and `tools/`): [MIT](LICENSE-CODE) — reuse freely, including in your own analyses.
+
 ## Status
 
 Under construction, in course order — Act I (chapters 1–3) first.
