@@ -34,7 +34,7 @@ practice_problems:
     probes: total-variance-decomposition
     solution: worked
   - id: nest-4
-    kind: spot-the-lie
+    kind: spot-the-mismatch
     objective: >
       Diagnose why a rising overdispersion factor does not mean deeper
       sequencing makes biology noisier.
@@ -177,7 +177,7 @@ for name, x in [("fixed truth", fixed), ("nested truth", nested)]:
 The means agree — around 300 reads either way. The spreads do not, and it is
 not subtle. **Nesting left the average alone and multiplied the spread
 severalfold.** Hold onto the first half of that sentence; it comes back in
-"How it lies to you."
+"When the model is wrong."
 
 Now turn the concentration dial and watch the spread respond while the mean
 refuses to move:
@@ -367,11 +367,13 @@ ignore, concedes a real virtue of the rejected alternative, marks two open
 questions as open — and its Anticipate names failures that could only happen
 to *this* problem. "The data might be noisy" appears nowhere.
 
-## How it lies to you
+## When the model is wrong
 
-Three lies, in ascending order of expense. The first is demonstrated live.
+Three ways for an answer to be wrong, in ascending order of expense. The first is demonstrated
+live. None of them is the model lying — a model cannot lie. Each is a place where the model was
+wrong about the process, and the work is knowing how that would show.
 
-**Lie one: a well-calibrated rule, applied to the wrong world, fails
+**First: a well-calibrated rule, applied to the wrong world, fails
 enormously and silently.** Her sensible-sounding quality filter: flag any day
 outside the 95% band that read-sampling noise predicts around the monthly
 mean. Built honestly — from the exact null-distribution logic of
@@ -396,7 +398,7 @@ flag more than half of reality as anomalous. Nothing errored. Every number
 printed. The rule was correct in its world; its world was wrong, and no line
 of its code can tell you so.
 
-**Lie two: matching the mean feels like validation, and means are blind
+**Second: matching the mean feels like validation, and means are blind
 here.** Every world in this chapter has the same mean. A simulation of her
 month with nesting accidentally omitted reproduces the average abundance
 perfectly and is wrong about everything this chapter cares about. When you
@@ -404,7 +406,7 @@ check a stochastic simulation — yours, a collaborator's, an agent's — check
 the property the model exists to produce. Here that is the spread. A test on
 the mean would pass; it is the wrong test.
 
-**Lie three: "we'll sequence deeper" spends money to stand still.** The depth
+**Third: "we'll sequence deeper" spends money to stand still.** The depth
 dial showed it and the bracket $1+(n-1)\rho$ proved it: past the point where
 sampling noise dips under the truth's own spread, additional depth purchases
 precision about individual days and nothing about the variability question.
@@ -491,7 +493,7 @@ the means — is the total-variance decomposition, and it is the entire
 $[1 + (n-1)\rho]$ bracket in miniature.
 :::
 
-### 3.4 · Spot the lie {#sec-nest-p4}
+### 3.4 · Spot the mismatch {#sec-nest-p4}
 
 A colleague runs the depth experiment, computes the overdispersion factor at
 each depth, and reports: *"the factor was 5.9 at 500 reads and 50.5 at 5,000

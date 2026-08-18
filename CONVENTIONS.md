@@ -17,7 +17,7 @@ Nine sections, same order, every chapter. **The order is the pedagogy** — stor
 | Where the numbers come from | Estimation, still in code |
 | The notation | The compression, **last**; feeds the decoder appendix |
 | A worked design | A complete Frame → Decompose → Select → Anticipate pass on an *analogous* problem — close enough to transfer, far enough not to leak the week's assignment |
-| How it lies to you | Assumptions and failure modes, with at least one **executed** failure |
+| When the model is wrong | Assumptions and failure modes, with at least one **executed** failure |
 | Practice problems | Ungraded, with worked solutions — see below |
 
 ## The non-negotiables
@@ -51,6 +51,13 @@ Nine sections, same order, every chapter. **The order is the pedagogy** — stor
     the current assignments' organisms, parameter values, and question vocabulary. The lint's
     tripwire catches instructor-repo terms; only the author can catch the week's biology.
 
+## Wrong, never lying
+
+A model cannot lie. When its answer is wrong, the model was wrong about the process that made the
+data — and the interesting question is always *how you would know*. Write failure sections and
+practice problems in that register: model–world mismatch, violated assumptions, answers that are
+wrong in ways that show or don't. Deception language ("the model lies/tricks/fools you") is out.
+
 ## Practice problems
 
 Five kinds, recurring in every chapter, so the shape of practice is stable while content varies:
@@ -60,7 +67,7 @@ Five kinds, recurring in every chapter, so the shape of practice is stable while
 | `predict-the-output` | Read code, commit to a prediction, then run |
 | `modify-the-story` | Change the generative story; say what changes downstream |
 | `hand-calculate` | Tiny instance, worked by hand |
-| `spot-the-lie` | Given subtly wrong output, find the violated assumption |
+| `spot-the-mismatch` | Given subtly wrong output, find where the model stopped matching the world |
 | `read-the-notation` | Translate a formula to prose/code or back |
 
 Each problem's frontmatter carries `kind`, an `objective` sentence (student-visible), the concept
