@@ -3,27 +3,400 @@ id: repeat
 week: 2
 act: I
 operation: "repeat"
-concepts: []
-prerequisites: []
-notation_introduced: []
-misconceptions: []
-practice_problems: []
+concepts: [null-distribution, p-value, multiple-testing, false-discovery, repeat-composition]
+prerequisites: [simulating-a-process, sampling-variability]
+notation_introduced: [p-value, expected-false-positives]
+misconceptions:
+  - "A small p-value means the effect is real."
+  - "If each test is honest, the list of significant results is honest."
+  - "1,200 tests are 1,200 independent questions."
+practice_problems:
+  - id: rep-1
+    kind: predict-the-output
+    objective: >
+      Predict the shape of a p-value histogram under the null, and the count
+      below a threshold, before running the scan.
+    probes: null-distribution
+    solution: worked
+  - id: rep-2
+    kind: modify-the-story
+    objective: >
+      Say what tripling the samples per group changes about the discovery
+      list — and what it provably cannot change.
+    probes: multiple-testing
+    solution: worked
+  - id: rep-3
+    kind: hand-calculate
+    objective: >
+      Compute the chance of at least one false positive across five honest
+      tests, by hand.
+    probes: expected-false-positives
+    solution: worked
+  - id: rep-4
+    kind: spot-the-mismatch
+    objective: >
+      Diagnose why subtracting the expected false positives from a discovery
+      count does not identify any real discovery.
+    probes: false-discovery
+    solution: worked
+  - id: rep-5
+    kind: read-the-notation
+    objective: >
+      Translate the expected-false-positives formula into code and an honest
+      sentence about a 20,000-test scan.
+    probes: expected-false-positives
+    solution: worked
 ---
 
 # Repeat: null distributions and the thousand-test trap {#sec-repeat}
 
-> **Under construction.**
-
-*The question this chapter answers:* **You scanned 1,000 loci and some came up significant. Should you believe any of them?**
-
-<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
 ## The problem
+
+Your methylation collaborator is back, and the project has grown up. She now has **1,200 CpG
+sites** measured in **30 tumor samples and 30 normal samples** — at every site, in every sample,
+a read count and a methylated fraction, exactly the measurement you built in
+@sec-simulating-a-process. She wants the sites where tumor and normal genuinely differ, because
+the top of that list gets validated by pyrosequencing at real cost per site.
+
+She has already looked, and the differences are *everywhere*: almost no site shows exactly the
+same fraction in both groups. Of course it doesn't — you spent last chapter measuring the wobble
+in any finite sample. Two groups of thirty will differ at every site by sampling variability
+alone, at a site where the biology is identical.
+
+So the real question is not "which sites differ" — all of them do. It is: **which differences are
+larger than the wobble two identical groups would show — and when you ask that question 1,200
+times, what happens to the answers?**
+
+The second half is where this chapter earns its title. The answer to the first half is a tool;
+the answer to the second is a warning label that most working scientists learned the hard way.
+
 ## The story
+
+This week's operation is **repeat**, and it composes what you already own. One site is last
+chapter's story twice: tumor's true fraction $m$, normal's true fraction $m$ — *the same $m$,
+because we are building the world where nothing is going on* — each observed through finite
+reads in finite samples. The whole experiment is that story repeated 1,200 times, one $m$ per
+site, spread across the genome's range.
+
+The world where nothing is going on has a name — the **null world** — and building it explicitly
+is the move of the week. It answers a question no amount of staring at her real data can: *what
+do purely accidental differences look like, at this depth, with these group sizes, across this
+many sites?* Whatever that world produces, her data must beat.
+
 ## The story, as code
+
+One site's group difference, then 1,200 of them. The inner function is @sec-simulating-a-process
+compressed to its built-in form.
+
+```{python}
+import numpy as np
+
+def group_fraction(m, n_samples, n_reads, rng):
+    """Average observed methylation across one group's samples."""
+    return rng.binomial(n_reads, m, n_samples).mean() / n_reads
+
+def null_scan(site_truths, n_samples, n_reads, rng):
+    """Observed tumor-minus-normal difference at every site, when NO site truly differs."""
+    return np.array([group_fraction(m, n_samples, n_reads, rng)
+                     - group_fraction(m, n_samples, n_reads, rng)
+                     for m in site_truths])
+
+rng = np.random.default_rng(3)
+truths = rng.uniform(0.2, 0.8, 1200)        # each site its own methylation level...
+diffs = null_scan(truths, 30, 25, rng)      # ...identical in both groups
+print(f"largest difference in a world with nothing in it: {np.abs(diffs).max():.3f}")
+```
+
+```{python}
+#| fig-cap: "1,200 tumor-minus-normal differences from a world where no site differs. None of this is biology."
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots(figsize=(7, 3))
+ax.hist(diffs, bins=40, color="#2a78d6")
+ax.set_xlabel("observed difference in methylation fraction (tumor − normal)")
+ax.set_ylabel("sites")
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+Sit with that histogram for a moment. Every one of those differences was produced by *nothing*.
+Some sites in the nothing-world differ by a full eight points of methylation — differences a
+reasonable person would call "clearly higher in tumor" if they met them one at a time.
+
 ## Playing with the story
+
+Pick one site and make the question precise. Say its observed difference is 0.045. Is that
+surprising? You have the machine that answers it: run *that site's* null world many times and
+count how often nothing-at-all produces a difference at least that big — in either direction,
+since a difference of −0.045 is exactly as extreme as +0.045.
+
+```{python}
+rng = np.random.default_rng(7)
+m, observed = 0.5, 0.045
+null = np.array([group_fraction(m, 30, 25, rng) - group_fraction(m, 30, 25, rng)
+                 for _ in range(2000)])
+p = (np.abs(null) >= abs(observed)).mean()
+print(f"nothing produces a difference ≥ {observed} about {p:.1%} of the time")
+```
+
+That fraction is the **p-value** — nothing more exotic than *how often the null world beats your
+observation*. Around 8% here: mildly unusual, the kind of thing nothing-at-all does a few times
+in every hundred tries. **Predict before running:** if you compute this for *all 1,200 sites of
+the null world* and histogram the p-values, what shape must appear? Not roughly — exactly. Think
+about what a p-value of 0.30 means, and how often the null world should produce something its own
+top 30% beats.
+
+```{python}
+#| fig-cap: "P-values for 1,200 sites where nothing is going on. Flat is what honesty looks like."
+rng = np.random.default_rng(11)
+pvals = np.empty(1200)
+for i, m in enumerate(truths):
+    obs = group_fraction(m, 30, 25, rng) - group_fraction(m, 30, 25, rng)
+    null = np.array([group_fraction(m, 30, 25, rng) - group_fraction(m, 30, 25, rng)
+                     for _ in range(300)])
+    pvals[i] = (np.abs(null) >= abs(obs)).mean()
+
+fig, ax = plt.subplots(figsize=(7, 2.8))
+ax.hist(pvals, bins=20, color="#2a78d6")
+ax.axhline(60, color="#52514e", ls=":", lw=1.5)
+ax.set_xlabel("p-value")
+ax.set_ylabel("sites")
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+print(f"sites with p < 0.05: {(pvals < 0.05).sum()} of 1200")
+```
+
+Flat — by construction, not coincidence: a p-value of 0.05 means "the null beats this 5% of the
+time," so under the null, 5% of p-values land below 0.05, 10% below 0.10, and so on. Which
+delivers the number that should worry you: in a scan with *nothing to find*, at the conventional
+p < 0.05, **dozens of sites come up "significant"** — 54 in the run above, against the
+$1200 \times 0.05 = 60$ the arithmetic promises. Not because anything is wrong with the
+test. Because you asked an honest 1-in-20 question 1,200 times.
+
 ## Where the numbers come from
+
+Now build her actual situation: a world that is *mostly* nothing plus a little something — 60
+sites where tumor truly runs 0.07 higher, hidden among 1,140 where nothing happens. You know
+which is which, because you built it. Run the identical analysis and grade the discovery list:
+
+```{python}
+#| fig-cap: "The discovery list, graded against the truth only the simulator knows."
+rng = np.random.default_rng(19)
+base = rng.uniform(0.2, 0.8, 1200)
+n_true, delta = 60, 0.07                     # sites 0..59 truly differ
+pvals = np.empty(1200)
+for i, m in enumerate(base):
+    m_tumor = m + (delta if i < n_true else 0.0)
+    obs = group_fraction(m_tumor, 30, 25, rng) - group_fraction(m, 30, 25, rng)
+    null = np.array([group_fraction(m, 30, 25, rng) - group_fraction(m, 30, 25, rng)
+                     for _ in range(300)])
+    pvals[i] = (np.abs(null) >= abs(obs)).mean()
+
+hits = pvals < 0.05
+real, false = hits[:n_true].sum(), hits[n_true:].sum()
+fig, ax = plt.subplots(figsize=(6, 2.6))
+ax.barh(["false discoveries", "real discoveries"], [false, real],
+        color=["#eb6834", "#2a78d6"])
+for y, v in enumerate([false, real]):
+    ax.text(v + 1.5, y, str(v), va="center")
+ax.set_xlabel("sites reported at p < 0.05")
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+print(f"list: {hits.sum()} sites — {real} real, {false} false — {false/hits.sum():.0%} of the list is noise")
+```
+
+Read the composition, because it is the whole chapter: the scan found most of the real sites —
+and **almost half the list is false** — the accidents the flat histogram promised, right on
+schedule.
+Nothing was dishonest. Every p-value did precisely what it claims. The list is still half noise,
+because *real effects were rare and questions were plentiful* — 60 truths cannot outnumber the
+accidents that 1,140 nothings generate at 1-in-20.
+
+That ratio — how much of the reported list is noise — is the number her pyrosequencing budget
+actually cares about, and notice what it depends on: not just the threshold, but **how rare true
+effects are**, which nobody knows in advance. Tighten the threshold to p < 0.01 and the accidents
+drop toward eleven while most real sites survive; every choice trades real discoveries kept
+against false ones admitted, and defending that trade is part of reporting the list.
+
 ## The notation
+
+Two compressions this week, both small. The p-value, said precisely:
+
+> *the p-value is the probability that the null world produces a result at least as extreme as
+> the one observed.*
+
+Every word is load-bearing — *null world* (a model you built, of nothing happening), *at least as
+extreme* (both directions, unless you can justify otherwise before looking), *produces* (you can
+always get it by running the world, which is how you got every one above).
+
+And the accounting rule you watched happen:
+
+$$
+\mathbb{E}[\text{false positives}] = m_{\text{null}} \cdot \alpha
+$$
+
+The expected number of accidental discoveries is the number of truly-null questions times the
+threshold. You cannot know $m_{\text{null}}$ — but $m_{\text{null}} \le$ the number of tests, so
+$1200 \times 0.05 = 60$ is the ceiling on accidents, known *before any data arrives*. A scan's
+list should always be read next to that number.
+
 ## A worked design
+
+The weekly full pass on an adjacent problem — Frame, Decompose, Select, Anticipate.
+
+> **The problem.** A water authority screens **200 wells** monthly for arsenic exceedance.
+> The assay is noisy, so each well's monthly result is a measurement, not a verdict. This month
+> **9 wells exceeded** the threshold; last month it was 6; the month before, 7. Remediation means
+> excavating a well at significant cost, and false alarms burn community trust. The board asks:
+> **is contamination spreading, and which specific wells should we dig up?**
+
+**Frame.** Two questions wearing one sentence, and they need different machinery. "Is it
+spreading" is about the *count* — is 9-of-200 surprising given assay noise and each well's
+history? "Which wells" is 200 *individual* questions asked simultaneously — this month's
+scan is a 200-test experiment, and some exceedances are the assay's 1-in-whatever accidents.
+I am treating wells as independent for the count question, and flagging now that they are not —
+wells share aquifers, and neighboring wells' results move together, which makes clusters of
+exceedance both more suspicious as contamination and more producible by shared noise.
+
+**Decompose.** (1) From each well's history, a null world: assay noise around that well's
+ordinary level. (2) The count question: simulate 200 wells' ordinary months, count exceedances,
+locate 9 in that distribution. (3) The which-wells question: per-well p-values, read against the
+expected number of accidents — with 200 wells at a 3% accident rate, six exceedances is the
+*baseline*, not a signal. (4) A decision rule that prices the asymmetry: digging up a clean well
+costs money; missing a contaminated one costs health — the threshold is not 0.05 by reflex.
+
+**Select.** The method must produce per-well evidence *and* the scan-wide accident count, and it
+must let the board move the threshold and watch both costs respond — a fixed verdict is worth
+less than the dial. Forward simulation from each well's own history does this. The alternative
+I am not taking is flagging wells above a fixed concentration cutoff, which I concede is simpler
+and auditable; it fails because wells differ in baseline and in assay noise, so one cutoff is
+strict for clean wells and blind for dirty ones.
+
+**Anticipate.** How could my answer be wrong, and how would I know? First: each well's "ordinary
+level" comes from its own history — if a well has been quietly contaminated all along, its
+history *is* the contamination, my null learns it, and the well becomes invisible; I would check
+wells whose baseline sits near the health limit by absolute standard, not just by surprise.
+Second: the aquifer correlation I set aside — a shared-noise month produces a cluster that my
+independent-wells count question over-reads as spreading; before alarming the board I would ask
+whether this month's 9 share a water table. Third: 9 versus 6 versus 7 is three months of a
+count whose ordinary wobble I have not yet measured — the trend question may simply be
+unanswerable this early, and saying so is a finding.
+
 ## When the model is wrong
+
+Box's warning from @sec-simulating-a-process applies with a twist this week: the null world *is
+a model* — the most important one you built — and everything the scan concluded assumed it was
+the right model of "nothing going on." Three ways that can fail.
+
+**Choosing the direction after seeing the data nearly doubles the accident rate.** The
+"at least as extreme in either direction" clause is not pedantry. Suppose an analyst computes a
+one-directional p-value — but picks the direction *after looking at which way the difference
+went*. Every test is still individually defensible-looking. Watch the accident rate:
+
+```{python}
+rng = np.random.default_rng(23)
+flagged = 0
+for _ in range(2000):
+    obs = group_fraction(0.5, 30, 25, rng) - group_fraction(0.5, 30, 25, rng)
+    null = np.array([group_fraction(0.5, 30, 25, rng) - group_fraction(0.5, 30, 25, rng)
+                     for _ in range(200)])
+    p = (null >= obs).mean() if obs > 0 else (null <= obs).mean()   # direction chosen after looking
+    flagged += p < 0.05
+print(f"accident rate with direction-after-looking: {flagged/2000:.3f}  (honest target: 0.05)")
+```
+
+With perfectly continuous measurements the rate is exactly double; the discreteness of counts
+spares a little of it here. Nothing in any single computation looks wrong; the model of the
+*procedure* is what's wrong —
+the analysis answered a question shaped by the answer. The general form of this failure (chosen
+thresholds, chosen subgroups, chosen outcomes — all chosen after looking) is among the most
+common ways honest people produce false discoveries.
+
+**The 1,200 questions are not 1,200 independent questions.** Neighboring CpG sites travel
+together — methylation comes in coordinated regions, just as neighboring positions on a
+chromosome are inherited together (geneticists call that *linkage*). Our null drew every site
+independently. Correlated sites don't change any single p-value, but they change what a *list*
+means: a run of ten significant neighbors may be one biological event wearing ten hats, and the
+accident count fluctuates far more than independent-world arithmetic expects. When your
+discoveries arrive in clumps, count events, not tests, before celebrating.
+
+**And the null's own noise model can be too small for reality.** We built "nothing going on" as:
+same true fraction, read-sampling wobble only. Real samples wobble for more reasons than reads —
+sample handling, cell composition, day effects — so the real null world is *wider* than the one
+we simulated, and every accident count above is a floor, not a promise. What happens when the
+truth itself varies under the null — and how badly it breaks a scan exactly like this one — is
+the entire subject of the next chapter (@sec-nest).
+
 ## Practice problems
--->
+
+Ungraded, solutions worked. Do them before looking.
+
+### 2.1 · Predict the output {#sec-rep-p1}
+
+A null scan of **5,000** sites, same settings as the chapter. Before running anything: what
+shape is the p-value histogram, how many sites land below p = 0.01, and below p = 0.05?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Flat; about **50** below 0.01; about **250** below 0.05. No simulation needed — under the null,
+p-values are uniform, so the count below $\alpha$ is $5000\alpha$ in expectation. If your scan of
+real data shows a flat histogram with a spike near zero, the spike's *excess over flat* is your
+first estimate of how much true signal exists — a trick worth remembering.
+:::
+
+### 2.2 · Modify the story {#sec-rep-2}
+
+Rebuild the graded-list experiment with **90 samples per group** instead of 30. Before running:
+which numbers in the list composition change, in which direction — and which number provably
+does not move?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Power rises: group means tighten threefold in variance, so the 0.07 shifts stand out further and
+essentially all 60 true sites are caught. The false-positive count **does not move**: truly-null
+sites produce p < 0.05 five percent of the time at *any* sample size — bigger samples make real
+effects easier to see, not accidents rarer. So the list grows more honest (60-ish real against
+~57 accidents) but the accidents never leave. The only levers on the false count are the
+threshold and the number of null questions asked.
+:::
+
+### 2.3 · Hand-calculate {#sec-rep-p3}
+
+Five honest tests, all null, threshold 0.05. By hand: the probability that *at least one* comes
+up significant. Then: the expected number that do.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Each test stays quiet with probability 0.95; all five stay quiet with $0.95^5 \approx 0.774$; so
+at least one fires with probability $1 - 0.774 = \mathbf{0.226}$ — nearly a coin flip's worth of
+risk from just five questions. Expected count: $5 \times 0.05 = 0.25$. Both numbers come from the
+same two facts, multiplied — no simulation, no software, and they scale in your head: at 100
+tests, "at least one" is a near-certainty ($1 - 0.95^{100} \approx 0.994$).
+:::
+
+### 2.4 · Spot the mismatch {#sec-rep-p4}
+
+A paper reports: *"Of 12,000 genes tested, 640 reached p < 0.05. Since chance predicts 600, we
+identified 40 genes whose expression truly changed."* The arithmetic is right. What is wrong?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+The subtraction lives at the level of *counts*; the claim lives at the level of *genes* — and
+nothing connects them. An excess of 40 over the expected 600 is (weak) evidence that some signal
+exists somewhere, but the 640 names on the list are ~600 accidents and ~40 truths *thoroughly
+shuffled together*, and the analysis contains nothing that says which are which. "We identified
+40 genes" asserts an identification that was never performed. The honest sentence: "the excess
+suggests on the order of 40 real changes; individually, no gene on this list is more than about
+6% likely to be one of them without further evidence."
+:::
+
+### 2.5 · Read the notation {#sec-rep-p5}
+
+Translate $\mathbb{E}[\text{FP}] = m_{\text{null}}\,\alpha$ into one line of code for a 20,000-gene
+scan at $\alpha = 0.01$, and one sentence for a collaborator deciding whether to trust a
+180-gene discovery list from that scan.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+```{python}
+print(20000 * 0.01)
+```
+Sentence: "even if *nothing* in your experiment changed, this scan hands you about 200 genes at
+p < 0.01 — so a 180-gene list is not evidence of anything yet; it is *fewer* discoveries than
+nothing-at-all typically produces, and the list needs a different threshold or a different
+design before anyone spends money on it."
+:::

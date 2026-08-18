@@ -55,7 +55,7 @@ Nine sections, same order, every chapter. **The order is the pedagogy** — stor
 
 Every model encodes a necessarily simplified version of the process that generated the data, so
 every model is wrong somewhere — Box's *all models are wrong, but some are useful* [@box1976;
-@box1979], cited formally in chapter 3. Failure sections and practice problems are written in that
+@box1979], cited formally where the reader first meets a failure section, in chapter 1. Failure sections and practice problems are written in that
 register: model–world mismatch, violated assumptions, where the simplification stops holding and
 how you would know. Never anthropomorphize a model; it has no intent to describe — and the frame
 is not argued with in the text, it is simply absent. The lint enforces the vocabulary.
