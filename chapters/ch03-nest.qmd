@@ -5,7 +5,7 @@ act: I
 operation: "nest"
 concepts: [nesting, overdispersion, beta-binomial, variance-as-diagnostic, intraclass-correlation]
 prerequisites: [simulating-a-process, sampling-variability, null-distributions, p-values]
-notation_introduced: [distributed-as-tilde, conditional-bar, beta-mean-concentration, total-variance-decomposition, intraclass-correlation-rho]
+notation_introduced: [conditional-bar, beta-mean-concentration, total-variance-decomposition, intraclass-correlation-rho]
 misconceptions:
   - "If the mean of the simulation matches the data, the simulation is right."
   - "Deeper sequencing will average away day-to-day biological variability."
@@ -276,7 +276,7 @@ $$
 
 Read aloud: *day $d$'s truth $p_d$ is distributed as a Beta with mean $\mu$
 and concentration $\kappa$; given that truth, the count $X_d$ is binomial.*
-The symbol $\sim$ says "is a draw from" — it is the `rng.beta(...)` line. The
+The symbol $\sim$ you know from @sec-simulating-a-process — here it is the `rng.beta(...)` line. The
 bar $\mid$ says "given" — it is the fact that `p_today` is already in hand
 when the binomial line runs. Two lines of notation, two lines inside your
 loop. Together the pair is called the **beta-binomial**, and it is what your
@@ -368,12 +368,10 @@ to *this* problem. "The data might be noisy" appears nowhere.
 
 ## When the model is wrong
 
-Why will this section exist in every chapter of this book? George Box gave the standing reason:
-**all models are wrong** [@box1976] — every model encodes a deliberately simplified version of the
-process that produced the data, which is exactly what makes it something you can run — **and some
-are useful** [@box1979]. Useful is not the same as right. A model earns its keep when you know
-*where* its simplifications stop holding and *what that would look like* in the output. Three ways
-this chapter's model can be wrong, in ascending order of expense; the first is demonstrated live.
+Box's standing reason from @sec-simulating-a-process applies with special force to a model with a
+hidden layer: **all models are wrong** [@box1976] — and a nested model is wrong in ways that hide
+one level down. Three ways this chapter's model can be wrong, in ascending order of expense; the
+first is demonstrated live.
 
 **First: a well-calibrated rule, applied to the wrong world, fails
 enormously and silently.** Her sensible-sounding quality filter: flag any day

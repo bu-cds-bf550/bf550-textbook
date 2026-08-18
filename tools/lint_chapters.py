@@ -5,7 +5,8 @@ Rules:
   L1  frontmatter parses and carries id, week; exactly one H1, carrying {#sec-<id>}
       (title lives in the H1 only — a frontmatter title would render a duplicate heading)
   L2  every {python} chunk is <= 35 lines
-  L3  any chunk that touches randomness constructs a seeded default_rng
+  L3  any EXECUTED chunk that touches randomness constructs a seeded default_rng
+      (eval: false exhibits are exempt -- there is no output to reproduce)
   L4  boundary tripwire: instructor-repo vocabulary must never appear here
   L5  register: no deception/agency metaphors for models, negations included
 """
@@ -40,7 +41,8 @@ for path in sorted(glob.glob("chapters/*.qmd")) + ["index.qmd"]:
         lines = [l for l in chunk.splitlines() if not l.startswith("#|")]
         if len(lines) > MAX_CHUNK:
             print(f"L2 {path}: chunk of {len(lines)} lines (max {MAX_CHUNK})"); fail += 1
-        if RANDOM.search(chunk) and not SEEDED.search(chunk):
+        executed = "#| eval: false" not in chunk
+        if executed and RANDOM.search(chunk) and not SEEDED.search(chunk):
             print(f"L3 {path}: randomness without a seeded default_rng"); fail += 1
     hit = TRIPWIRE.search(text)
     if hit:
