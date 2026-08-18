@@ -3,7 +3,6 @@ id: clustering
 week: 12
 act: III
 operation: "mix, hidden"
-title: "Are there groups here? Clustering and validating k"
 concepts: []
 prerequisites: []
 notation_introduced: []

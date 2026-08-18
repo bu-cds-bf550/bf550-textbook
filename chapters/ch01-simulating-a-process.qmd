@@ -3,7 +3,6 @@ id: simulating-a-process
 week: 1
 act: I
 operation: "build"
-title: "Worlds you can build: simulating a process"
 concepts: []
 prerequisites: []
 notation_introduced: []

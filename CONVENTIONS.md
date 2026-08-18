@@ -77,6 +77,9 @@ it `probes`, and `solution: worked`. Solutions are in the book; they are ungrade
 
 ## Frontmatter schema
 
-`id` (stable slug) · `week` · `act` · `operation` · `title` · `concepts` · `prerequisites` ·
+`id` (stable slug) · `week` · `act` · `operation` · `concepts` · `prerequisites` ·
 `notation_introduced` · `misconceptions` (statements a student might believe, used by the tutor
-skill) · `practice_problems`. `tools/build_corpus.py` compiles all of it to `corpus.json`.
+skill) · `practice_problems`. **No `title` in frontmatter** — the chapter's single H1 (which also carries
+the `{#sec-id}` crossref anchor) is the title; a frontmatter title makes Quarto render a second,
+separately numbered heading. `tools/build_corpus.py` reads the title from the H1 and compiles
+everything to `corpus.json`.

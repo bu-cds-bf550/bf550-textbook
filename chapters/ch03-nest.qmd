@@ -3,7 +3,6 @@ id: nest
 week: 3
 act: I
 operation: "nest"
-title: "Nest: why real data is messier than your model"
 concepts: [nesting, overdispersion, beta-binomial, variance-as-diagnostic, intraclass-correlation]
 prerequisites: [simulating-a-process, sampling-variability, null-distributions, p-values]
 notation_introduced: [distributed-as-tilde, conditional-bar, beta-mean-concentration, total-variance-decomposition, intraclass-correlation-rho]

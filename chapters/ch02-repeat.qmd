@@ -3,7 +3,6 @@ id: repeat
 week: 2
 act: I
 operation: "repeat"
-title: "Repeat: null distributions and the thousand-test trap"
 concepts: []
 prerequisites: []
 notation_introduced: []

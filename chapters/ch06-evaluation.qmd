@@ -3,7 +3,6 @@ id: evaluation
 week: 6
 act: II
 operation: ""
-title: "Did it actually work? Evaluation and generalization"
 concepts: []
 prerequisites: []
 notation_introduced: []
