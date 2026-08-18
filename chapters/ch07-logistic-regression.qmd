@@ -3,7 +3,6 @@ id: logistic-regression
 week: 7
 act: II
 operation: "condition"
-title: "Condition: logistic regression"
 concepts: []
 prerequisites: []
 notation_introduced: []

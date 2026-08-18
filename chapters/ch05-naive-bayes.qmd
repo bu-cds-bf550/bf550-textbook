@@ -3,7 +3,6 @@ id: naive-bayes
 week: 5
 act: II
 operation: "mix + repeat"
-title: "Naive Bayes: classification as a generative story"
 concepts: []
 prerequisites: []
 notation_introduced: []

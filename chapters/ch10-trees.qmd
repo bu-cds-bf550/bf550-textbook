@@ -3,7 +3,6 @@ id: trees
 week: 10
 act: III
 operation: ""
-title: "Trees and forests: the honest outlier"
 concepts: []
 prerequisites: []
 notation_introduced: []

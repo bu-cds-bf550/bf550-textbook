@@ -3,7 +3,6 @@ id: pca
 week: 11
 act: III
 operation: "latent"
-title: "Fewer dimensions, same story: PCA"
 concepts: []
 prerequisites: []
 notation_introduced: []

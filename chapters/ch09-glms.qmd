@@ -3,7 +3,6 @@ id: glms
 week: 9
 act: II
 operation: "nest + condition"
-title: "Generalized linear models: Poisson and negative binomial regression"
 concepts: []
 prerequisites: []
 notation_introduced: []

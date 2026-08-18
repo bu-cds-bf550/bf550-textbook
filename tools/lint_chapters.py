@@ -2,7 +2,8 @@
 """Lint chapter .qmd files against the conventions a machine can check.
 
 Rules:
-  L1  frontmatter parses and carries id, week, title
+  L1  frontmatter parses and carries id, week; exactly one H1, carrying {#sec-<id>}
+      (title lives in the H1 only — a frontmatter title would render a duplicate heading)
   L2  every {python} chunk is <= 35 lines
   L3  any chunk that touches randomness constructs a seeded default_rng
   L4  boundary tripwire: instructor-repo vocabulary must never appear here
@@ -25,9 +26,14 @@ for path in sorted(glob.glob("chapters/*.qmd")) + ["index.qmd"]:
             print(f"L1 {path}: no frontmatter"); fail += 1; continue
         try:
             fm = yaml.safe_load(m.group(1))
-            missing = [k for k in ("id", "week", "title") if k not in fm]
+            missing = [k for k in ("id", "week") if k not in fm]
             if missing:
                 print(f"L1 {path}: missing {missing}"); fail += 1
+            if "title" in fm:
+                print(f"L1 {path}: frontmatter title renders a duplicate heading — title lives in the H1"); fail += 1
+            h1s = re.findall(r"^# .*$", text, re.M)
+            if len(h1s) != 1 or f'{{#sec-{fm.get("id")}}}' not in h1s[0]:
+                print(f"L1 {path}: need exactly one H1 ending {{#sec-{fm.get('id')}}}, found {len(h1s)}"); fail += 1
         except yaml.YAMLError as e:
             print(f"L1 {path}: bad yaml: {e}"); fail += 1
     for chunk in re.findall(r"```\{python\}\n(.*?)```", text, re.S):

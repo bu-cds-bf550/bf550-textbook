@@ -3,7 +3,6 @@ id: linear-regression
 week: 8
 act: II
 operation: "condition"
-title: "Regression, and regularization as a prior"
 concepts: []
 prerequisites: []
 notation_introduced: []

@@ -3,7 +3,6 @@ id: mix
 week: 4
 act: II
 operation: "mix"
-title: "Mix: Bayes' theorem and what a sample is made of"
 concepts: []
 prerequisites: []
 notation_introduced: []
