@@ -1,0 +1,30 @@
+---
+id: naive-bayes
+week: 5
+act: II
+operation: "mix + repeat"
+title: "Naive Bayes: classification as a generative story"
+concepts: []
+prerequisites: []
+notation_introduced: []
+misconceptions: []
+practice_problems: []
+---
+
+# Naive Bayes: classification as a generative story {#sec-naive-bayes}
+
+> **Under construction.**
+
+*The question this chapter answers:* **Which reads are rRNA, and how confident can you be about any single call?**
+
+<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
+## The problem
+## The story
+## The story, as code
+## Playing with the story
+## Where the numbers come from
+## The notation
+## A worked design
+## How it lies to you
+## Practice problems
+-->

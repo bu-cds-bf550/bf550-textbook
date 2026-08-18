@@ -1,0 +1,30 @@
+---
+id: linear-regression
+week: 8
+act: II
+operation: "condition"
+title: "Regression, and regularization as a prior"
+concepts: []
+prerequisites: []
+notation_introduced: []
+misconceptions: []
+practice_problems: []
+---
+
+# Regression, and regularization as a prior {#sec-linear-regression}
+
+> **Under construction.**
+
+*The question this chapter answers:* **Can expression predict dose response?**
+
+<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
+## The problem
+## The story
+## The story, as code
+## Playing with the story
+## Where the numbers come from
+## The notation
+## A worked design
+## How it lies to you
+## Practice problems
+-->

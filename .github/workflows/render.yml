@@ -1,0 +1,27 @@
+name: render
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Lint chapters
+        run: python tools/lint_chapters.py
+      - name: Build corpus
+        run: python tools/build_corpus.py
+      - uses: quarto-dev/quarto-actions/setup@v2
+      - name: Render book
+        run: quarto render
+      - uses: actions/upload-artifact@v4
+        with:
+          name: book
+          path: _book

@@ -1,0 +1,30 @@
+---
+id: nest
+week: 3
+act: I
+operation: "nest"
+title: "Nest: why real data is messier than your model"
+concepts: []
+prerequisites: []
+notation_introduced: []
+misconceptions: []
+practice_problems: []
+---
+
+# Nest: why real data is messier than your model {#sec-nest}
+
+> **Under construction.**
+
+*The question this chapter answers:* **Your null says this is impossible and real data does it constantly. Which one is wrong?**
+
+<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
+## The problem
+## The story
+## The story, as code
+## Playing with the story
+## Where the numbers come from
+## The notation
+## A worked design
+## How it lies to you
+## Practice problems
+-->

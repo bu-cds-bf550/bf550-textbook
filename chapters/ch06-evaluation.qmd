@@ -1,0 +1,30 @@
+---
+id: evaluation
+week: 6
+act: II
+operation: ""
+title: "Did it actually work? Evaluation and generalization"
+concepts: []
+prerequisites: []
+notation_introduced: []
+misconceptions: []
+practice_problems: []
+---
+
+# Did it actually work? Evaluation and generalization {#sec-evaluation}
+
+> **Under construction.**
+
+*The question this chapter answers:* **Does the classifier actually work, or does it just look like it does?**
+
+<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
+## The problem
+## The story
+## The story, as code
+## Playing with the story
+## Where the numbers come from
+## The notation
+## A worked design
+## How it lies to you
+## Practice problems
+-->

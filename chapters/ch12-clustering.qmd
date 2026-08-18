@@ -1,0 +1,30 @@
+---
+id: clustering
+week: 12
+act: III
+operation: "mix, hidden"
+title: "Are there groups here? Clustering and validating k"
+concepts: []
+prerequisites: []
+notation_introduced: []
+misconceptions: []
+practice_problems: []
+---
+
+# Are there groups here? Clustering and validating k {#sec-clustering}
+
+> **Under construction.**
+
+*The question this chapter answers:* **Do these cells form distinct types — and how many?**
+
+<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
+## The problem
+## The story
+## The story, as code
+## Playing with the story
+## Where the numbers come from
+## The notation
+## A worked design
+## How it lies to you
+## Practice problems
+-->

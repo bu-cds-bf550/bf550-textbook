@@ -1,0 +1,30 @@
+---
+id: glms
+week: 9
+act: II
+operation: "nest + condition"
+title: "Generalized linear models: Poisson and negative binomial regression"
+concepts: []
+prerequisites: []
+notation_introduced: []
+misconceptions: []
+practice_problems: []
+---
+
+# Generalized linear models: Poisson and negative binomial regression {#sec-glms}
+
+> **Under construction.**
+
+*The question this chapter answers:* **Are these genes really differentially expressed?**
+
+<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
+## The problem
+## The story
+## The story, as code
+## Playing with the story
+## Where the numbers come from
+## The notation
+## A worked design
+## How it lies to you
+## Practice problems
+-->

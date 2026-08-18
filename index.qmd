@@ -1,0 +1,16 @@
+# Preface {.unnumbered}
+
+> **Under construction.** Chapters are being written in course order; Act I (chapters 1–3) first.
+
+This book teaches one habit: **before you analyze data, write down — as runnable code — the
+process you think produced it.** Every chapter starts from a biological question, builds the
+process that generates the data, plays with it, and only then compresses what you built into
+notation. The formula is always the *last* form of an idea you have already run.
+
+Every chapter ends with ungraded practice problems, **with worked solutions.** There is nothing
+here you are graded on, by design: the course's problem sets are released separately, and this
+book is fully open — to you, and to your AI tutor — precisely because it contains no answers to
+anything that counts.
+
+How to read it: run the code. Every chunk is seeded, so you will see exactly the figures printed
+here — and then you should change the settings and see something the book has never seen.

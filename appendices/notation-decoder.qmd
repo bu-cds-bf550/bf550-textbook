@@ -1,0 +1,4 @@
+# Notation decoder {.unnumbered}
+
+> **Generated — do not edit by hand.** Every symbol a chapter introduces gets an entry here:
+> a plain-language gloss and a code gloss. Populated by `tools/build_corpus.py` as chapters land.

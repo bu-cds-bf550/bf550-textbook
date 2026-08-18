@@ -1,0 +1,5 @@
+_book/
+.quarto/
+__pycache__/
+corpus.json
+_freeze/

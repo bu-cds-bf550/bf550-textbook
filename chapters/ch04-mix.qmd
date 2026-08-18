@@ -1,0 +1,30 @@
+---
+id: mix
+week: 4
+act: II
+operation: "mix"
+title: "Mix: Bayes' theorem and what a sample is made of"
+concepts: []
+prerequisites: []
+notation_introduced: []
+misconceptions: []
+practice_problems: []
+---
+
+# Mix: Bayes' theorem and what a sample is made of {#sec-mix}
+
+> **Under construction.**
+
+*The question this chapter answers:* **What species did this sequence come from?**
+
+<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
+## The problem
+## The story
+## The story, as code
+## Playing with the story
+## Where the numbers come from
+## The notation
+## A worked design
+## How it lies to you
+## Practice problems
+-->

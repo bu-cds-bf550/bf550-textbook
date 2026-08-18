@@ -1,0 +1,30 @@
+---
+id: trees
+week: 10
+act: III
+operation: ""
+title: "Trees and forests: the honest outlier"
+concepts: []
+prerequisites: []
+notation_introduced: []
+misconceptions: []
+practice_problems: []
+---
+
+# Trees and forests: the honest outlier {#sec-trees}
+
+> **Under construction.**
+
+*The question this chapter answers:* **Which genes mark treatment response?**
+
+<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
+## The problem
+## The story
+## The story, as code
+## Playing with the story
+## Where the numbers come from
+## The notation
+## A worked design
+## How it lies to you
+## Practice problems
+-->

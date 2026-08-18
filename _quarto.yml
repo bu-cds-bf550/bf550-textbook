@@ -1,0 +1,33 @@
+project:
+  type: book
+
+book:
+  title: "BF550 — Biological Data Analysis, Simulation First"
+  author: "BF550 Course Staff, Boston University"
+  repo-url: https://github.com/bu-cds-bf550/bf550-textbook
+  chapters:
+    - index.qmd
+    - chapters/ch01-simulating-a-process.qmd
+    - chapters/ch02-repeat.qmd
+    - chapters/ch03-nest.qmd
+    - chapters/ch04-mix.qmd
+    - chapters/ch05-naive-bayes.qmd
+    - chapters/ch06-evaluation.qmd
+    - chapters/ch07-logistic-regression.qmd
+    - chapters/ch08-linear-regression.qmd
+    - chapters/ch09-glms.qmd
+    - chapters/ch10-trees.qmd
+    - chapters/ch11-pca.qmd
+    - chapters/ch12-clustering.qmd
+  appendices:
+    - appendices/notation-decoder.qmd
+    - appendices/toolbox.qmd
+
+format:
+  html:
+    theme: cosmo
+    code-copy: true
+    toc: true
+
+execute:
+  freeze: auto

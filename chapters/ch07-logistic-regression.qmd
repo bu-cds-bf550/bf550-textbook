@@ -1,0 +1,30 @@
+---
+id: logistic-regression
+week: 7
+act: II
+operation: "condition"
+title: "Condition: logistic regression"
+concepts: []
+prerequisites: []
+notation_introduced: []
+misconceptions: []
+practice_problems: []
+---
+
+# Condition: logistic regression {#sec-logistic-regression}
+
+> **Under construction.**
+
+*The question this chapter answers:* **Is this variant pathogenic?**
+
+<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
+## The problem
+## The story
+## The story, as code
+## Playing with the story
+## Where the numbers come from
+## The notation
+## A worked design
+## How it lies to you
+## Practice problems
+-->
