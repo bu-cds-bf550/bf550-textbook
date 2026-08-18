@@ -67,9 +67,6 @@ So the real question is not "which sites differ" — all of them do. It is: **wh
 larger than the wobble two identical groups would show — and when you ask that question 1,200
 times, what happens to the answers?**
 
-The second half is where this chapter earns its title. The answer to the first half is a tool;
-the answer to the second is a warning label that most working scientists learned the hard way.
-
 ## The story
 
 This week's operation is **repeat**, and it composes what you already own. One site is last
@@ -78,8 +75,8 @@ because we are building the world where nothing is going on* — each observed t
 reads in finite samples. The whole experiment is that story repeated 1,200 times, one $m$ per
 site, spread across the genome's range.
 
-The world where nothing is going on has a name — the **null world** — and building it explicitly
-is the move of the week. It answers a question no amount of staring at her real data can: *what
+The world where nothing is going on has a name — the **null world** — and this week's work is
+building it explicitly. It answers a question no amount of staring at her real data can: *what
 do purely accidental differences look like, at this depth, with these group sizes, across this
 many sites?* Whatever that world produces, her data must beat.
 
@@ -93,13 +90,18 @@ import numpy as np
 
 def group_fraction(m, n_samples, n_reads, rng):
     """Average observed methylation across one group's samples."""
-    return rng.binomial(n_reads, m, n_samples).mean() / n_reads
+    counts = rng.binomial(n_reads, m, n_samples)   # one methylated-read count per sample
+    fractions = counts / n_reads
+    return fractions.mean()
 
 def null_scan(site_truths, n_samples, n_reads, rng):
     """Observed tumor-minus-normal difference at every site, when NO site truly differs."""
-    return np.array([group_fraction(m, n_samples, n_reads, rng)
-                     - group_fraction(m, n_samples, n_reads, rng)
-                     for m in site_truths])
+    diffs = []
+    for m in site_truths:
+        tumor = group_fraction(m, n_samples, n_reads, rng)
+        normal = group_fraction(m, n_samples, n_reads, rng)
+        diffs.append(tumor - normal)
+    return np.array(diffs)
 
 rng = np.random.default_rng(3)
 truths = rng.uniform(0.2, 0.8, 1200)        # each site its own methylation level...
@@ -130,11 +132,20 @@ count how often nothing-at-all produces a difference at least that big — in ei
 since a difference of −0.045 is exactly as extreme as +0.045.
 
 ```{python}
+def null_differences(m, n_sims, rng):
+    """Many runs of one site's null world: same true m for both groups."""
+    diffs = []
+    for _ in range(n_sims):
+        tumor = group_fraction(m, 30, 25, rng)
+        normal = group_fraction(m, 30, 25, rng)
+        diffs.append(tumor - normal)
+    return np.array(diffs)
+
 rng = np.random.default_rng(7)
 m, observed = 0.5, 0.045
-null = np.array([group_fraction(m, 30, 25, rng) - group_fraction(m, 30, 25, rng)
-                 for _ in range(2000)])
-p = (np.abs(null) >= abs(observed)).mean()
+null = null_differences(m, 2000, rng)
+at_least_as_extreme = np.abs(null) >= abs(observed)   # True/False per run, either direction
+p = at_least_as_extreme.mean()                        # fraction of True = the p-value
 print(f"nothing produces a difference ≥ {observed} about {p:.1%} of the time")
 ```
 
@@ -151,9 +162,8 @@ rng = np.random.default_rng(11)
 pvals = np.empty(1200)
 for i, m in enumerate(truths):
     obs = group_fraction(m, 30, 25, rng) - group_fraction(m, 30, 25, rng)
-    null = np.array([group_fraction(m, 30, 25, rng) - group_fraction(m, 30, 25, rng)
-                     for _ in range(300)])
-    pvals[i] = (np.abs(null) >= abs(obs)).mean()
+    null = null_differences(m, 300, rng)
+    pvals[i] = np.mean(np.abs(null) >= abs(obs))   # the p-value, as above
 
 fig, ax = plt.subplots(figsize=(7, 2.8))
 ax.hist(pvals, bins=20, color="#2a78d6")
@@ -168,7 +178,7 @@ print(f"sites with p < 0.05: {(pvals < 0.05).sum()} of 1200")
 Flat — by construction, not coincidence: a p-value of 0.05 means "the null beats this 5% of the
 time," so under the null, 5% of p-values land below 0.05, 10% below 0.10, and so on. Which
 delivers the number that should worry you: in a scan with *nothing to find*, at the conventional
-p < 0.05, **dozens of sites come up "significant"** — 54 in the run above, against the
+p < 0.05, **dozens of sites come up "significant"** — 56 in the run above, against the
 $1200 \times 0.05 = 60$ the arithmetic promises. Not because anything is wrong with the
 test. Because you asked an honest 1-in-20 question 1,200 times.
 
@@ -185,11 +195,13 @@ base = rng.uniform(0.2, 0.8, 1200)
 n_true, delta = 60, 0.07                     # sites 0..59 truly differ
 pvals = np.empty(1200)
 for i, m in enumerate(base):
-    m_tumor = m + (delta if i < n_true else 0.0)
+    if i < n_true:
+        m_tumor = m + delta        # one of the 60 sites that truly differ
+    else:
+        m_tumor = m                # nothing going on at this site
     obs = group_fraction(m_tumor, 30, 25, rng) - group_fraction(m, 30, 25, rng)
-    null = np.array([group_fraction(m, 30, 25, rng) - group_fraction(m, 30, 25, rng)
-                     for _ in range(300)])
-    pvals[i] = (np.abs(null) >= abs(obs)).mean()
+    null = null_differences(m, 300, rng)
+    pvals[i] = np.mean(np.abs(null) >= abs(obs))
 
 hits = pvals < 0.05
 real, false = hits[:n_true].sum(), hits[n_true:].sum()
@@ -204,7 +216,7 @@ plt.show()
 print(f"list: {hits.sum()} sites — {real} real, {false} false — {false/hits.sum():.0%} of the list is noise")
 ```
 
-Read the composition, because it is the whole chapter: the scan found most of the real sites —
+Read the composition: the scan found most of the real sites —
 and **almost half the list is false** — the accidents the flat histogram promised, right on
 schedule.
 Nothing was dishonest. Every p-value did precisely what it claims. The list is still half noise,
@@ -219,7 +231,7 @@ against false ones admitted, and defending that trade is part of reporting the l
 
 ## The notation
 
-Two compressions this week, both small. The p-value, said precisely:
+Two pieces of shorthand this week, both small. The p-value, said precisely:
 
 > *the p-value is the probability that the null world produces a result at least as extreme as
 > the one observed.*
@@ -240,8 +252,6 @@ $1200 \times 0.05 = 60$ is the ceiling on accidents, known *before any data arri
 list should always be read next to that number.
 
 ## A worked design
-
-The weekly full pass on an adjacent problem — Frame, Decompose, Select, Anticipate.
 
 > **The problem.** A water authority screens **200 wells** monthly for arsenic exceedance.
 > The assay is noisy, so each well's monthly result is a measurement, not a verdict. This month
@@ -297,10 +307,13 @@ rng = np.random.default_rng(23)
 flagged = 0
 for _ in range(2000):
     obs = group_fraction(0.5, 30, 25, rng) - group_fraction(0.5, 30, 25, rng)
-    null = np.array([group_fraction(0.5, 30, 25, rng) - group_fraction(0.5, 30, 25, rng)
-                     for _ in range(200)])
-    p = (null >= obs).mean() if obs > 0 else (null <= obs).mean()   # direction chosen after looking
-    flagged += p < 0.05
+    null = null_differences(0.5, 200, rng)
+    if obs > 0:                          # direction chosen after looking:
+        p = np.mean(null >= obs)         #   the difference went up, so test "up"
+    else:
+        p = np.mean(null <= obs)         #   the difference went down, so test "down"
+    if p < 0.05:
+        flagged += 1
 print(f"accident rate with direction-after-looking: {flagged/2000:.3f}  (honest target: 0.05)")
 ```
 
@@ -339,7 +352,7 @@ shape is the p-value histogram, how many sites land below p = 0.01, and below p 
 Flat; about **50** below 0.01; about **250** below 0.05. No simulation needed — under the null,
 p-values are uniform, so the count below $\alpha$ is $5000\alpha$ in expectation. If your scan of
 real data shows a flat histogram with a spike near zero, the spike's *excess over flat* is your
-first estimate of how much true signal exists — a trick worth remembering.
+first estimate of how much true signal exists — worth remembering.
 :::
 
 ### 2.2 · Modify the story {#sec-rep-2}

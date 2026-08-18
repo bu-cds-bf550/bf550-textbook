@@ -3,7 +3,7 @@ id: simulating-a-process
 week: 1
 act: I
 operation: "build"
-concepts: [generative-process, simulation, seeds, binomial-counts, sampling-variability, structural-checks]
+concepts: [generative-process, simulation, seeds, distribution, binomial-counts, sampling-variability, structural-checks]
 prerequisites: []
 notation_introduced: [distributed-as-tilde, binomial-notation, expected-value-informal]
 misconceptions:
@@ -53,21 +53,23 @@ practice_problems:
 
 A colleague studies DNA methylation — small chemical marks that sit on top of the genome and help
 decide which genes a cell actually uses. At one particular site, in one tissue sample, she has
-done a bisulfite sequencing experiment: 80 reads cover the site, and each read reports whether the
-molecule it came from carried the mark. **49 of her 80 reads say methylated.**
+measured it. A sequencing machine examines DNA molecules one at a time and reports what each one
+carries; a single molecule's report is called a **read**. Her sample was chemically treated first
+— the treatment is called bisulfite — so that each molecule's methylation state survives into its
+read. **80 reads cover her site, and 49 of them say methylated.**
 
 She needs a number for "how methylated is this site" — it goes into a comparison against the same
 site in other samples. 49/80 is 61%. But she sequenced *this* sample once. **If she ran the same
 sample again, would she get 61%? 55%? 70% — and how would she know without paying for the rerun?**
 
-That question — *how different could this number have been?* — is the founding question of this
-book, and this chapter builds the tool that answers it: a world you control.
+That question — *how different could this number have been?* — can be answered without paying
+for the rerun. The tool is a world you control.
 
 ## The story
 
 Where does one read's answer come from? The tissue is millions of cells. In some fraction of them
 — call it $m$, the number she actually wants — the site carries the mark; in the rest it does not.
-Her library preparation grabbed molecules from this pool, and each read is one molecule from
+The sample preparation pulled molecules from this pool, and each read is one molecule from
 (roughly) one cell. So each read answers "methylated?" with probability $m$, independently of the
 other reads, and her 49 is the count of yeses among 80 such draws.
 
@@ -75,8 +77,7 @@ That paragraph is a **generative process**: a story, told forward, of how the da
 Notice how much it deliberately simplifies. It assumes the chemistry reports every molecule
 faithfully, that 80 reads mean 80 independent molecules, that the sampled cells stand for the
 tissue. None of those is exactly true — every model is a simplified version of the process it
-describes, and this chapter's last section returns to two of these simplifications and watches
-what they cost. The craft is not avoiding simplification; it is knowing what you simplified.
+describes; the last section measures what two of these simplifications cost. The craft is not avoiding simplification; it is knowing what you simplified.
 
 The story's power is that **you can run it.** She cannot resequence her sample today. You can
 build a world where the true $m$ is whatever you say it is, run the experiment there for free, as
@@ -103,16 +104,15 @@ rng = np.random.default_rng(3)
 print(sequence_site(m=0.65, n_reads=80, rng=rng))
 ```
 
-Do not shortcut to a formula for the count, even if you know one. Build the molecules — the whole
-method of this book is that the story stays visible in the code.
+Do not shortcut to a formula for the count, even if you know one. Build the molecules — the
+story should stay visible in the code.
 
 Two small things carry a lot of weight here:
 
-- **`rng` is a random generator with a seed.** Same seed, same draws, forever. Every chunk in
-  this book is seeded so that you see exactly what is printed here — and so that when your rerun
-  of an analysis differs, *something real changed.*
+- **`rng` is a random generator with a seed.** Same seed, same draws, forever — so when your
+  rerun of an analysis differs, *something real changed.*
 - **The truth is an input.** In this world $m$ is not unknown — you set it. That inversion is the
-  whole trick: questions about "how wrong could my estimate be" are unanswerable on her one
+  point: questions about "how wrong could my estimate be" are unanswerable on her one
   sample and trivially answerable in a world where you know the answer.
 
 ## Playing with the story
@@ -129,7 +129,11 @@ rng = np.random.default_rng(7)
 depths = {20: "#2a78d6", 80: "#eb6834", 320: "#1baf7a"}
 fig, ax = plt.subplots(figsize=(7, 3.2))
 for depth, color in depths.items():
-    fr = np.array([sequence_site(0.65, depth, rng) / depth for _ in range(2000)])
+    fractions = []
+    for _ in range(2000):
+        count = sequence_site(0.65, depth, rng)
+        fractions.append(count / depth)
+    fr = np.array(fractions)
     ax.hist(fr, bins=np.arange(0.3, 1.0, 0.02), histtype="step", lw=2,
             color=color, label=f"{depth} reads")
     print(f"{depth:>3} reads: mean {fr.mean():.3f}   sd {fr.std():.3f}")
@@ -161,8 +165,14 @@ which truths routinely produce data like hers:
 #| fig-cap: "Which true methylation levels routinely produce 49-of-80? The curve is the answer to 'how sure can she be.'"
 rng = np.random.default_rng(11)
 grid = np.arange(0.40, 0.85, 0.05)
-consistent = [np.mean([abs(sequence_site(m, 80, rng) - 49) <= 3
-                       for _ in range(400)]) for m in grid]
+consistent = []
+for m in grid:
+    matches = 0
+    for _ in range(400):
+        count = sequence_site(m, 80, rng)
+        if abs(count - 49) <= 3:        # close enough to her 49?
+            matches += 1
+    consistent.append(matches / 400)
 for m, c in zip(grid, consistent):
     print(f"m = {m:.2f}: produces data like hers {c:.0%} of the time")
 
@@ -185,15 +195,22 @@ part of the conclusion.)
 
 ## The notation
 
-What you built has a standard compression, and you have earned it:
+One word first, because the rest of the book leans on it. Your histograms have been drawing
+pictures of **distributions**. A distribution is the complete answer to *which values can this
+random quantity take, and how often does it take each one* — two thousand runs approximate it;
+run forever and the histogram settles into it exactly.
+
+What you built has a standard shorthand:
 
 $$
 X \sim \mathrm{Binomial}(n,\ m)
 $$
 
-Read aloud: *the count $X$ is distributed as — is one draw from — a binomial with $n$ tries and
-per-try probability $m$.* The symbol $\sim$ is the single most load-bearing glyph in this book,
-and it always means the same thing: **there is a process on the right, and running it once
+Read aloud: *the count $X$ follows the binomial distribution — the distribution of yes-counts
+from $n$ independent tries, each succeeding with probability $m$.* Not a new object: it is
+exactly the distribution your `sequence_site` histograms have been approximating all chapter.
+"Binomial" is its name; $n$ and $m$ are its settings. The symbol $\sim$ always means the same thing, everywhere
+it appears: **there is a process on the right, and running it once
 produces the value on the left.** In code, $\sim$ is `sequence_site(m, n, rng)` — or, since this
 particular story is common enough to have earned a built-in, `rng.binomial(n, m)`.
 
@@ -203,23 +220,22 @@ square-root rate you paid for above. Later chapters lean on both.
 
 ## A worked design
 
-Every week, this section works the four design questions — Frame, Decompose, Select, Anticipate —
-on a problem *adjacent* to the week's ideas, so you can see what a finished design looks like
-before writing your own.
-
-> **The problem.** Your lab's qPCR runs include a positive control that should amplify every
-> time. The kit's documentation promises a failure rate under 2%. Reviewing the quarter's log,
-> you count **4 failures in 60 runs** — about 6.7%. Runs were done by three technicians across
+> **The problem.** Your lab runs qPCR — a routine assay that amplifies a target DNA sequence and
+> reports whether amplification happened. Every run includes a positive control that should
+> amplify every time. The kit's documentation promises a failure rate under 2%. Reviewing the log for the
+> quarter that just ended — the standard three-month reporting period, 60 runs in all — you
+> count **4 failures**, about 6.7%. Runs were done by three technicians across
 > two reagent lots; two of the four failures happened in the same week. The lab manager wants to
-> know: **is the kit underperforming its spec, or is this what a 2% failure rate looks like in a
-> quarter — and what would you tell her to do?**
+> know: **is the kit underperforming its spec, or is this what a 2% failure rate looks like over
+> a quarter's 60 runs — and what would you tell her to do?**
 
 **Frame.** Each run's control either amplifies or fails. The kit's claim is a per-run failure
-probability of 0.02; a quarter is 60 draws from that process, if runs fail independently. The
+probability of 0.02; the quarter's log is then 60 draws from that process, if runs fail
+independently. The
 question is whether 4-in-60 is a surprising output of that process or an ordinary one. I am
 ignoring which technician ran which plate for the first pass — but I am *not* ignoring the two
 failures in one week, because failures that cluster in time hint that runs do not fail
-independently, and independence is a load-bearing part of my frame.
+independently, and my frame depends on that independence.
 
 **Decompose.** (1) Simulate a quarter under the kit's own claim: 60 runs at 2%, count failures,
 repeat thousands of times. (2) Locate 4 in that distribution: how often does a compliant kit
@@ -244,12 +260,11 @@ but it is a marketing number with its own uncertainty — if my conclusion turns
 
 ## When the model is wrong
 
-Every chapter of this book ends here, and George Box gave the standing reason: **all models are
-wrong** [@box1976] — every model encodes a deliberately simplified version of the process that
+George Box: **all models are wrong** [@box1976] — every model encodes a deliberately simplified version of the process that
 produced the data, which is exactly what makes it something you can run — **and some are useful**
 [@box1979]. Useful is not the same as right. A model earns its keep when you know *where* its
-simplifications stop holding and *what that would look like* in the output. So, this chapter's
-story: it simplified the chemistry, and it simplified the reads. Watch both.
+simplifications stop holding and *what that would look like* in the output. This chapter's story
+simplified the chemistry and the reads. Watch both.
 
 **The chemistry: bisulfite conversion is not perfect.** The story assumed every read reports its
 molecule faithfully. In reality, incomplete conversion makes a small fraction of unmethylated
@@ -258,13 +273,19 @@ molecules *read as methylated* — a few percent. Add that to the world and watc
 ```{python}
 rng = np.random.default_rng(13)
 def sequence_site_leaky(m, n_reads, error, rng):
-    truly = rng.random(n_reads) < m
-    misread = (~truly) & (rng.random(n_reads) < error)   # conversion failure
-    return int((truly | misread).sum())
+    methylated_reads = 0
+    for _ in range(n_reads):
+        if rng.random() < m:
+            methylated_reads += 1        # truly methylated
+        elif rng.random() < error:
+            methylated_reads += 1        # conversion failure: reads as methylated anyway
+    return methylated_reads
 
 for m in (0.0, 0.10, 0.65):
-    fr = np.mean([sequence_site_leaky(m, 80, 0.03, rng) / 80 for _ in range(2000)])
-    print(f"true m = {m:.2f}: observed fractions average {fr:.3f}")
+    fractions = []
+    for _ in range(2000):
+        fractions.append(sequence_site_leaky(m, 80, 0.03, rng) / 80)
+    print(f"true m = {m:.2f}: observed fractions average {np.mean(fractions):.3f}")
 ```
 
 Every estimate is pulled up, and — this is the part that matters — **more reads do not help.**
@@ -281,13 +302,19 @@ draws; suppose only 30 molecules were really sampled:
 
 ```{python}
 rng = np.random.default_rng(17)
-fr = []
+fractions = []
 for _ in range(2000):
-    molecules = rng.random(30) < 0.65            # 30 real draws from the tissue
-    reads = molecules[rng.integers(0, 30, 80)]   # 80 reads, duplicated from them
-    fr.append(reads.mean())
+    molecules = []
+    for _ in range(30):                          # only 30 real molecules from the tissue
+        molecules.append(rng.random() < 0.65)
+    methylated_reads = 0
+    for _ in range(80):                          # each read copies a random molecule
+        which = rng.integers(0, 30)
+        if molecules[which]:
+            methylated_reads += 1
+    fractions.append(methylated_reads / 80)
 print(f"the 80-independent-reads model predicts sd {np.sqrt(0.65*0.35/80):.3f}")
-print(f"the 30-molecules world actually gives  sd {np.array(fr).std():.3f}")
+print(f"the 30-molecules world actually gives  sd {np.std(fractions):.3f}")
 ```
 
 Nearly double the spread the model promised, from data that still says "80 reads" on the label.
@@ -311,12 +338,15 @@ two spreads compare — by what factor?
 ```{python}
 #| eval: false
 rng = np.random.default_rng(5)
-print([sequence_site(0.4, 20, rng) for _ in range(3)])
+print(sequence_site(0.4, 20, rng), sequence_site(0.4, 20, rng), sequence_site(0.4, 20, rng))
 rng = np.random.default_rng(5)
-print([sequence_site(0.4, 20, rng) for _ in range(3)])
-fr_20  = [sequence_site(0.4, 20,  np.random.default_rng(i)) / 20  for i in range(500)]
-fr_320 = [sequence_site(0.4, 320, np.random.default_rng(i)) / 320 for i in range(500)]
-print(np.std(fr_20), np.std(fr_320))
+print(sequence_site(0.4, 20, rng), sequence_site(0.4, 20, rng), sequence_site(0.4, 20, rng))
+
+fractions_20, fractions_320 = [], []
+for _ in range(500):
+    fractions_20.append(sequence_site(0.4, 20, rng) / 20)
+    fractions_320.append(sequence_site(0.4, 320, rng) / 320)
+print(np.std(fractions_20), np.std(fractions_320))
 ```
 
 ::: {.callout-tip collapse="true" title="Worked solution"}
@@ -338,7 +368,10 @@ world apart from a single-population world with the same average?
 def sequence_site_mixed(n_reads, rng):
     methylated = 0
     for _ in range(n_reads):
-        m = 0.9 if rng.random() < 0.8 else 0.1     # which cell type this molecule came from
+        if rng.random() < 0.8:
+            m = 0.9        # this molecule came from the common cell type
+        else:
+            m = 0.1        # ...or from the rare one
         if rng.random() < m:
             methylated += 1
     return methylated

@@ -4,7 +4,7 @@ week: 3
 act: I
 operation: "nest"
 concepts: [nesting, overdispersion, beta-binomial, variance-as-diagnostic, intraclass-correlation]
-prerequisites: [simulating-a-process, sampling-variability, null-distributions, p-values]
+prerequisites: [simulating-a-process, sampling-variability, null-distribution, p-value]
 notation_introduced: [conditional-bar, beta-mean-concentration, total-variance-decomposition, intraclass-correlation-rho]
 misconceptions:
   - "If the mean of the simulation matches the data, the simulation is right."
@@ -76,13 +76,13 @@ same change that nearly every serious model of sequencing data is built on.
 ## The story
 
 Here is the story the reflex tells. Each day, every one of 5,000 reads is a
-draw from the gut's transcript pool, and lands on *Akkermansia* with some fixed
+draw from the DNA in that morning's sample, and lands on *Akkermansia* with some fixed
 probability — say 6%, her monthly average. Days differ only because 5,000
 draws differ. One level of randomness.
 
 Now listen to what the story asserts: that her gut on Tuesday and her gut on
-Friday are *the same pool*, and only the sampling differs. But an actual gut is
-not a sealed jar. Diet shifts the pool. Transit time shifts it. Where in the
+Friday are *the same*, and only the sampling differs. But an actual gut is
+not a sealed jar. Diet shifts the mix. Transit time shifts it. Where in the
 stool the sampling spoon landed shifts it. None of that is measurement error —
 the **true fraction itself moves from day to day.**
 
@@ -94,7 +94,7 @@ So the honest story has two levels:
 2. **The reads draw from the day.** Given today's truth, 5,000 reads sample it,
    with exactly the one-level wobble you already know.
 
-That is the whole move, and it is this week's operation: **nesting**. A number
+That is this week's operation: **nesting**. A number
 that was a fixed *setting* of your process becomes an *output* of another
 process. Yesterday a parameter; today a draw.
 
@@ -175,8 +175,7 @@ for name, x in [("fixed truth", fixed), ("nested truth", nested)]:
 
 The means agree — around 300 reads either way. The spreads do not, and it is
 not subtle. **Nesting left the average alone and multiplied the spread
-severalfold.** Hold onto the first half of that sentence; it comes back in
-"When the model is wrong."
+severalfold.**
 
 Now turn the concentration dial and watch the spread respond while the mean
 refuses to move:
@@ -242,7 +241,10 @@ print(f"her month: mean {observed.mean():.1f}, sd {observed.std():.1f}\n")
 
 rng = np.random.default_rng(19)
 candidates = (25, 100, 500)
-sds = [one_month(0.06, k, 5000, 2000, rng).std() for k in candidates]
+sds = []
+for kappa in candidates:
+    month_counts = one_month(0.06, kappa, 5000, 2000, rng)
+    sds.append(month_counts.std())
 for k, sd in zip(candidates, sds):
     print(f"world κ={k:>3}: sd {sd:.1f}")
 
@@ -265,8 +267,7 @@ watch how far the estimates scatter.
 
 ## The notation
 
-Everything you have built compresses to two lines. This is the *last* form of
-the idea, not the first — you have been running it for pages:
+Everything you have built compresses to two lines:
 
 $$
 p_d \sim \mathrm{Beta}(\mu\kappa,\ (1-\mu)\kappa)
@@ -303,11 +304,6 @@ wider, not narrower. Depth is not a cure for overdispersion; it is a
 magnifying glass on it.
 
 ## A worked design
-
-Every week, this section works the four design questions — Frame, Decompose,
-Select, Anticipate — on a problem *adjacent* to the week's ideas, so you can
-see what a finished design looks like before writing your own. Adjacent, not
-identical: the moves transfer; the answers do not.
 
 > **The problem.** A hospital's infection-control team tracks *C. difficile*
 > infections in each of 14 wards, monthly, and has three years of records.
@@ -388,7 +384,8 @@ tests = {"fixed truth": rng.binomial(5000, 0.06, 1000),
          "nested, κ=25": one_month(0.06, 25, 5000, 1000, rng)}
 print(f"band: [{lo:.0f}, {hi:.0f}] reads — built to flag 5%\n")
 for name, days in tests.items():
-    frac = np.mean((days < lo) | (days > hi))
+    outside_band = (days < lo) | (days > hi)   # True for each day outside the band
+    frac = outside_band.mean()
     print(f"{name:>14}: flags {frac:.0%} of perfectly ordinary days")
 ```
 
@@ -459,7 +456,10 @@ histogram?
 def one_month_flares(n_reads, n_days, rng):
     counts = []
     for _ in range(n_days):
-        p_today = 0.03 if rng.random() < 0.7 else 0.13   # two regimes
+        if rng.random() < 0.7:
+            p_today = 0.03      # a quiet day
+        else:
+            p_today = 0.13      # a flare day
         counts.append(rng.binomial(n_reads, p_today))
     return np.array(counts)
 
@@ -520,6 +520,9 @@ $$
 \lambda_i \sim \mathrm{Gamma}(2,\ 1/2) \qquad Y_i \mid \lambda_i \sim \mathrm{Poisson}(\lambda_i)
 $$
 
+Neither distribution has appeared in this book. That is the point: the notation alone tells you
+how to run them.
+
 ::: {.callout-tip collapse="true" title="Worked solution"}
 ```{python}
 rng = np.random.default_rng(37)
@@ -530,7 +533,7 @@ print(np.round(lam, 2), y)
 Sentence: "each sample has its own underlying rate, drawn from a spread of
 plausible rates, and the count we observe is Poisson noise around that
 sample's rate." This pair — a Gamma-distributed rate inside a Poisson — is
-the negative binomial, the beta-binomial's twin for open-ended counts, and
-the model under nearly every RNA-seq differential-expression tool you will
-ever run. You just simulated it in three lines.
+the negative binomial, the beta-binomial's twin for open-ended counts — and the model under the
+standard tools for deciding which genes changed between conditions, which @sec-glms builds
+properly. You just simulated it in three lines.
 :::
