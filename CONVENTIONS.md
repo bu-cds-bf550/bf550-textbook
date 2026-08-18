@@ -77,6 +77,14 @@ is not argued with in the text, it is simply absent. The lint enforces the vocab
     written — no justifying a chapter's title, no "every chapter of this book ends here," no
     describing what a section is for. Orientation lives in the preface, once. Cross-references
     point at content ("@sec-nest measures this"), never at the book's own design.
+14. **Self-contained, never encyclopedic.** Every idea a sentence leans on is either introduced
+    by an earlier chapter — declared in this chapter's `prerequisites` frontmatter and checked by
+    the lint against earlier chapters' `concepts` — or given a working definition in the sentence
+    where it first appears: one or two sentences, enough to read *this book*, never a review of
+    the field. Prefer defining by pointing at something the reader has already run ("a
+    distribution is what your histograms have been drawing"). The prompting examples: "reads"
+    appeared before sequencing had been introduced at all, and $\mathrm{Binomial}$ arrived as a
+    name with no account of what a distribution is.
 
 ## Practice problems
 

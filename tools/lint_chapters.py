@@ -9,6 +9,8 @@ Rules:
       (eval: false exhibits are exempt -- there is no output to reproduce)
   L4  boundary tripwire: instructor-repo vocabulary must never appear here
   L5  register: no deception/agency metaphors for models, negations included
+  L6  self-contained: every prerequisite a chapter declares is a concept (or id)
+      introduced by an earlier-week chapter -- nothing leans on outside background
 """
 import re, sys, glob, yaml
 
@@ -19,6 +21,7 @@ RANDOM = re.compile(r"np\.random|default_rng|\brng\b|random\.")
 SEEDED = re.compile(r"default_rng\(\s*\d+\s*\)")
 
 fail = 0
+chapter_meta = []
 for path in sorted(glob.glob("chapters/*.qmd")) + ["index.qmd"]:
     text = open(path, encoding="utf-8").read()
     m = re.match(r"---\n(.*?)\n---\n", text, re.S)
@@ -35,6 +38,7 @@ for path in sorted(glob.glob("chapters/*.qmd")) + ["index.qmd"]:
             h1s = re.findall(r"^# .*$", text, re.M)
             if len(h1s) != 1 or f'{{#sec-{fm.get("id")}}}' not in h1s[0]:
                 print(f"L1 {path}: need exactly one H1 ending {{#sec-{fm.get('id')}}}, found {len(h1s)}"); fail += 1
+            chapter_meta.append((fm.get("week", 99), path, fm))
         except yaml.YAMLError as e:
             print(f"L1 {path}: bad yaml: {e}"); fail += 1
     for chunk in re.findall(r"```\{python\}\n(.*?)```", text, re.S):
@@ -50,5 +54,15 @@ for path in sorted(glob.glob("chapters/*.qmd")) + ["index.qmd"]:
     hit = REGISTER.search(text)
     if hit:
         print(f"L5 {path}: register (Box, not deception): {hit.group(0)!r}"); fail += 1
+
+# L6: the concept graph -- prerequisites must be introduced by earlier weeks
+ASSUMED = set()   # background allowed without introduction; grow deliberately, never casually
+known = set(ASSUMED)
+for week, path, fm in sorted(chapter_meta):
+    for prereq in fm.get("prerequisites") or []:
+        if prereq not in known:
+            print(f"L6 {path}: prerequisite {prereq!r} is not introduced by any earlier chapter"); fail += 1
+    known.add(fm.get("id"))
+    known.update(fm.get("concepts") or [])
 
 sys.exit(1 if fail else print("lint: all clean") or 0)

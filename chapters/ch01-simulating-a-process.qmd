@@ -3,7 +3,7 @@ id: simulating-a-process
 week: 1
 act: I
 operation: "build"
-concepts: [generative-process, simulation, seeds, binomial-counts, sampling-variability, structural-checks]
+concepts: [generative-process, simulation, seeds, distribution, binomial-counts, sampling-variability, structural-checks]
 prerequisites: []
 notation_introduced: [distributed-as-tilde, binomial-notation, expected-value-informal]
 misconceptions:
@@ -53,21 +53,23 @@ practice_problems:
 
 A colleague studies DNA methylation — small chemical marks that sit on top of the genome and help
 decide which genes a cell actually uses. At one particular site, in one tissue sample, she has
-done a bisulfite sequencing experiment: 80 reads cover the site, and each read reports whether the
-molecule it came from carried the mark. **49 of her 80 reads say methylated.**
+measured it. A sequencing machine examines DNA molecules one at a time and reports what each one
+carries; a single molecule's report is called a **read**. Her sample was chemically treated first
+— the treatment is called bisulfite — so that each molecule's methylation state survives into its
+read. **80 reads cover her site, and 49 of them say methylated.**
 
 She needs a number for "how methylated is this site" — it goes into a comparison against the same
 site in other samples. 49/80 is 61%. But she sequenced *this* sample once. **If she ran the same
 sample again, would she get 61%? 55%? 70% — and how would she know without paying for the rerun?**
 
-That question — *how different could this number have been?* — is the founding question of this
-book, and this chapter builds the tool that answers it: a world you control.
+That question — *how different could this number have been?* — can be answered without paying
+for the rerun. The tool is a world you control.
 
 ## The story
 
 Where does one read's answer come from? The tissue is millions of cells. In some fraction of them
 — call it $m$, the number she actually wants — the site carries the mark; in the rest it does not.
-Her library preparation grabbed molecules from this pool, and each read is one molecule from
+The sample preparation pulled molecules from this pool, and each read is one molecule from
 (roughly) one cell. So each read answers "methylated?" with probability $m$, independently of the
 other reads, and her 49 is the count of yeses among 80 such draws.
 
@@ -75,8 +77,7 @@ That paragraph is a **generative process**: a story, told forward, of how the da
 Notice how much it deliberately simplifies. It assumes the chemistry reports every molecule
 faithfully, that 80 reads mean 80 independent molecules, that the sampled cells stand for the
 tissue. None of those is exactly true — every model is a simplified version of the process it
-describes, and this chapter's last section returns to two of these simplifications and watches
-what they cost. The craft is not avoiding simplification; it is knowing what you simplified.
+describes; the last section measures what two of these simplifications cost. The craft is not avoiding simplification; it is knowing what you simplified.
 
 The story's power is that **you can run it.** She cannot resequence her sample today. You can
 build a world where the true $m$ is whatever you say it is, run the experiment there for free, as
@@ -103,16 +104,15 @@ rng = np.random.default_rng(3)
 print(sequence_site(m=0.65, n_reads=80, rng=rng))
 ```
 
-Do not shortcut to a formula for the count, even if you know one. Build the molecules — the whole
-method of this book is that the story stays visible in the code.
+Do not shortcut to a formula for the count, even if you know one. Build the molecules — the
+story should stay visible in the code.
 
 Two small things carry a lot of weight here:
 
-- **`rng` is a random generator with a seed.** Same seed, same draws, forever. Every chunk in
-  this book is seeded so that you see exactly what is printed here — and so that when your rerun
-  of an analysis differs, *something real changed.*
+- **`rng` is a random generator with a seed.** Same seed, same draws, forever — so when your
+  rerun of an analysis differs, *something real changed.*
 - **The truth is an input.** In this world $m$ is not unknown — you set it. That inversion is the
-  whole trick: questions about "how wrong could my estimate be" are unanswerable on her one
+  point: questions about "how wrong could my estimate be" are unanswerable on her one
   sample and trivially answerable in a world where you know the answer.
 
 ## Playing with the story
@@ -195,14 +195,21 @@ part of the conclusion.)
 
 ## The notation
 
-What you built has a standard compression, and you have earned it:
+One word first, because the rest of the book leans on it. Your histograms have been drawing
+pictures of **distributions**. A distribution is the complete answer to *which values can this
+random quantity take, and how often does it take each one* — two thousand runs approximate it;
+run forever and the histogram settles into it exactly.
+
+What you built has a standard shorthand:
 
 $$
 X \sim \mathrm{Binomial}(n,\ m)
 $$
 
-Read aloud: *the count $X$ is distributed as — is one draw from — a binomial with $n$ tries and
-per-try probability $m$.* The symbol $\sim$ always means the same thing, everywhere
+Read aloud: *the count $X$ follows the binomial distribution — the distribution of yes-counts
+from $n$ independent tries, each succeeding with probability $m$.* Not a new object: it is
+exactly the distribution your `sequence_site` histograms have been approximating all chapter.
+"Binomial" is its name; $n$ and $m$ are its settings. The symbol $\sim$ always means the same thing, everywhere
 it appears: **there is a process on the right, and running it once
 produces the value on the left.** In code, $\sim$ is `sequence_site(m, n, rng)` — or, since this
 particular story is common enough to have earned a built-in, `rng.binomial(n, m)`.
@@ -213,8 +220,9 @@ square-root rate you paid for above. Later chapters lean on both.
 
 ## A worked design
 
-> **The problem.** Your lab's qPCR runs include a positive control that should amplify every
-> time. The kit's documentation promises a failure rate under 2%. Reviewing the log for the
+> **The problem.** Your lab runs qPCR — a routine assay that amplifies a target DNA sequence and
+> reports whether amplification happened. Every run includes a positive control that should
+> amplify every time. The kit's documentation promises a failure rate under 2%. Reviewing the log for the
 > quarter that just ended — the standard three-month reporting period, 60 runs in all — you
 > count **4 failures**, about 6.7%. Runs were done by three technicians across
 > two reagent lots; two of the four failures happened in the same week. The lab manager wants to
