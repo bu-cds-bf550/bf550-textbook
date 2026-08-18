@@ -101,6 +101,19 @@ Five kinds, recurring in every chapter, so the shape of practice is stable while
 Each problem's frontmatter carries `kind`, an `objective` sentence (student-visible), the concept
 it `probes`, and `solution: worked`. Solutions are in the book; they are ungraded.
 
+## Slides
+
+Lecture decks live in `slides/`, one revealjs deck per topic-opening meeting, rendered by the same
+CI into the book's site (`/slides/`). Everything above applies to them — the register, the seed
+rule, plain code, the palette, the language rules. Two things are theirs alone:
+
+- **Activation, not delivery.** The reading carries first exposure; a deck puts the week's ideas
+  to work — predict-then-run with the room, the design launch, the working-time agenda. A deck
+  that re-teaches its chapter is too long.
+- **Chunks reuse the chapter's seeds**, so what is projected in class is exactly what students
+  find in the reading. No speaker notes in the deck itself — anyone can press `s`; instructor
+  run-sheets live in the course-internal repository.
+
 ## Frontmatter schema
 
 `id` (stable slug) · `week` · `act` · `operation` · `concepts` · `prerequisites` ·

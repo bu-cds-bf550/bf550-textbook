@@ -9,6 +9,8 @@ Rules:
       (eval: false exhibits are exempt -- there is no output to reproduce)
   L4  boundary tripwire: instructor-repo vocabulary must never appear here
   L5  register: no deception/agency metaphors for models, negations included
+  Slides in slides/*.qmd get L2-L5 (chunk length, seeds, tripwire, register);
+  L1/L6 are chapter-frontmatter rules and do not apply to them.
   L6  self-contained: every prerequisite a chapter declares is a concept (or id)
       introduced by an earlier-week chapter -- nothing leans on outside background
 """
@@ -22,7 +24,7 @@ SEEDED = re.compile(r"default_rng\(\s*\d+\s*\)")
 
 fail = 0
 chapter_meta = []
-for path in sorted(glob.glob("chapters/*.qmd")) + ["index.qmd"]:
+for path in sorted(glob.glob("chapters/*.qmd")) + sorted(glob.glob("slides/*.qmd")) + ["index.qmd"]:
     text = open(path, encoding="utf-8").read()
     m = re.match(r"---\n(.*?)\n---\n", text, re.S)
     if path.startswith("chapters/"):
