@@ -208,14 +208,16 @@ on a problem *adjacent* to the week's ideas, so you can see what a finished desi
 before writing your own.
 
 > **The problem.** Your lab's qPCR runs include a positive control that should amplify every
-> time. The kit's documentation promises a failure rate under 2%. Reviewing the quarter's log,
-> you count **4 failures in 60 runs** — about 6.7%. Runs were done by three technicians across
+> time. The kit's documentation promises a failure rate under 2%. Reviewing the log for the
+> quarter that just ended — the standard three-month reporting period, 60 runs in all — you
+> count **4 failures**, about 6.7%. Runs were done by three technicians across
 > two reagent lots; two of the four failures happened in the same week. The lab manager wants to
-> know: **is the kit underperforming its spec, or is this what a 2% failure rate looks like in a
-> quarter — and what would you tell her to do?**
+> know: **is the kit underperforming its spec, or is this what a 2% failure rate looks like over
+> a quarter's 60 runs — and what would you tell her to do?**
 
 **Frame.** Each run's control either amplifies or fails. The kit's claim is a per-run failure
-probability of 0.02; a quarter is 60 draws from that process, if runs fail independently. The
+probability of 0.02; the quarter's log is then 60 draws from that process, if runs fail
+independently. The
 question is whether 4-in-60 is a surprising output of that process or an ordinary one. I am
 ignoring which technician ran which plate for the first pass — but I am *not* ignoring the two
 failures in one week, because failures that cluster in time hint that runs do not fail
