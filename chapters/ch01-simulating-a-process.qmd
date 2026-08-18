@@ -129,7 +129,11 @@ rng = np.random.default_rng(7)
 depths = {20: "#2a78d6", 80: "#eb6834", 320: "#1baf7a"}
 fig, ax = plt.subplots(figsize=(7, 3.2))
 for depth, color in depths.items():
-    fr = np.array([sequence_site(0.65, depth, rng) / depth for _ in range(2000)])
+    fractions = []
+    for _ in range(2000):
+        count = sequence_site(0.65, depth, rng)
+        fractions.append(count / depth)
+    fr = np.array(fractions)
     ax.hist(fr, bins=np.arange(0.3, 1.0, 0.02), histtype="step", lw=2,
             color=color, label=f"{depth} reads")
     print(f"{depth:>3} reads: mean {fr.mean():.3f}   sd {fr.std():.3f}")
@@ -161,8 +165,14 @@ which truths routinely produce data like hers:
 #| fig-cap: "Which true methylation levels routinely produce 49-of-80? The curve is the answer to 'how sure can she be.'"
 rng = np.random.default_rng(11)
 grid = np.arange(0.40, 0.85, 0.05)
-consistent = [np.mean([abs(sequence_site(m, 80, rng) - 49) <= 3
-                       for _ in range(400)]) for m in grid]
+consistent = []
+for m in grid:
+    matches = 0
+    for _ in range(400):
+        count = sequence_site(m, 80, rng)
+        if abs(count - 49) <= 3:        # close enough to her 49?
+            matches += 1
+    consistent.append(matches / 400)
 for m, c in zip(grid, consistent):
     print(f"m = {m:.2f}: produces data like hers {c:.0%} of the time")
 
@@ -192,8 +202,8 @@ X \sim \mathrm{Binomial}(n,\ m)
 $$
 
 Read aloud: *the count $X$ is distributed as — is one draw from — a binomial with $n$ tries and
-per-try probability $m$.* The symbol $\sim$ is the single most load-bearing glyph in this book,
-and it always means the same thing: **there is a process on the right, and running it once
+per-try probability $m$.* The symbol $\sim$ always means the same thing, everywhere
+it appears: **there is a process on the right, and running it once
 produces the value on the left.** In code, $\sim$ is `sequence_site(m, n, rng)` — or, since this
 particular story is common enough to have earned a built-in, `rng.binomial(n, m)`.
 
@@ -202,10 +212,6 @@ value* — at $n=80$, $m=0.65$, that is 52), and its spread shrinks with depth a
 square-root rate you paid for above. Later chapters lean on both.
 
 ## A worked design
-
-Every week, this section works the four design questions — Frame, Decompose, Select, Anticipate —
-on a problem *adjacent* to the week's ideas, so you can see what a finished design looks like
-before writing your own.
 
 > **The problem.** Your lab's qPCR runs include a positive control that should amplify every
 > time. The kit's documentation promises a failure rate under 2%. Reviewing the log for the
@@ -221,7 +227,7 @@ independently. The
 question is whether 4-in-60 is a surprising output of that process or an ordinary one. I am
 ignoring which technician ran which plate for the first pass — but I am *not* ignoring the two
 failures in one week, because failures that cluster in time hint that runs do not fail
-independently, and independence is a load-bearing part of my frame.
+independently, and my frame depends on that independence.
 
 **Decompose.** (1) Simulate a quarter under the kit's own claim: 60 runs at 2%, count failures,
 repeat thousands of times. (2) Locate 4 in that distribution: how often does a compliant kit
@@ -246,12 +252,11 @@ but it is a marketing number with its own uncertainty — if my conclusion turns
 
 ## When the model is wrong
 
-Every chapter of this book ends here, and George Box gave the standing reason: **all models are
-wrong** [@box1976] — every model encodes a deliberately simplified version of the process that
+George Box: **all models are wrong** [@box1976] — every model encodes a deliberately simplified version of the process that
 produced the data, which is exactly what makes it something you can run — **and some are useful**
 [@box1979]. Useful is not the same as right. A model earns its keep when you know *where* its
-simplifications stop holding and *what that would look like* in the output. So, this chapter's
-story: it simplified the chemistry, and it simplified the reads. Watch both.
+simplifications stop holding and *what that would look like* in the output. This chapter's story
+simplified the chemistry and the reads. Watch both.
 
 **The chemistry: bisulfite conversion is not perfect.** The story assumed every read reports its
 molecule faithfully. In reality, incomplete conversion makes a small fraction of unmethylated
@@ -260,13 +265,19 @@ molecules *read as methylated* — a few percent. Add that to the world and watc
 ```{python}
 rng = np.random.default_rng(13)
 def sequence_site_leaky(m, n_reads, error, rng):
-    truly = rng.random(n_reads) < m
-    misread = (~truly) & (rng.random(n_reads) < error)   # conversion failure
-    return int((truly | misread).sum())
+    methylated_reads = 0
+    for _ in range(n_reads):
+        if rng.random() < m:
+            methylated_reads += 1        # truly methylated
+        elif rng.random() < error:
+            methylated_reads += 1        # conversion failure: reads as methylated anyway
+    return methylated_reads
 
 for m in (0.0, 0.10, 0.65):
-    fr = np.mean([sequence_site_leaky(m, 80, 0.03, rng) / 80 for _ in range(2000)])
-    print(f"true m = {m:.2f}: observed fractions average {fr:.3f}")
+    fractions = []
+    for _ in range(2000):
+        fractions.append(sequence_site_leaky(m, 80, 0.03, rng) / 80)
+    print(f"true m = {m:.2f}: observed fractions average {np.mean(fractions):.3f}")
 ```
 
 Every estimate is pulled up, and — this is the part that matters — **more reads do not help.**
@@ -283,13 +294,19 @@ draws; suppose only 30 molecules were really sampled:
 
 ```{python}
 rng = np.random.default_rng(17)
-fr = []
+fractions = []
 for _ in range(2000):
-    molecules = rng.random(30) < 0.65            # 30 real draws from the tissue
-    reads = molecules[rng.integers(0, 30, 80)]   # 80 reads, duplicated from them
-    fr.append(reads.mean())
+    molecules = []
+    for _ in range(30):                          # only 30 real molecules from the tissue
+        molecules.append(rng.random() < 0.65)
+    methylated_reads = 0
+    for _ in range(80):                          # each read copies a random molecule
+        which = rng.integers(0, 30)
+        if molecules[which]:
+            methylated_reads += 1
+    fractions.append(methylated_reads / 80)
 print(f"the 80-independent-reads model predicts sd {np.sqrt(0.65*0.35/80):.3f}")
-print(f"the 30-molecules world actually gives  sd {np.array(fr).std():.3f}")
+print(f"the 30-molecules world actually gives  sd {np.std(fractions):.3f}")
 ```
 
 Nearly double the spread the model promised, from data that still says "80 reads" on the label.
@@ -313,12 +330,15 @@ two spreads compare — by what factor?
 ```{python}
 #| eval: false
 rng = np.random.default_rng(5)
-print([sequence_site(0.4, 20, rng) for _ in range(3)])
+print(sequence_site(0.4, 20, rng), sequence_site(0.4, 20, rng), sequence_site(0.4, 20, rng))
 rng = np.random.default_rng(5)
-print([sequence_site(0.4, 20, rng) for _ in range(3)])
-fr_20  = [sequence_site(0.4, 20,  np.random.default_rng(i)) / 20  for i in range(500)]
-fr_320 = [sequence_site(0.4, 320, np.random.default_rng(i)) / 320 for i in range(500)]
-print(np.std(fr_20), np.std(fr_320))
+print(sequence_site(0.4, 20, rng), sequence_site(0.4, 20, rng), sequence_site(0.4, 20, rng))
+
+fractions_20, fractions_320 = [], []
+for _ in range(500):
+    fractions_20.append(sequence_site(0.4, 20, rng) / 20)
+    fractions_320.append(sequence_site(0.4, 320, rng) / 320)
+print(np.std(fractions_20), np.std(fractions_320))
 ```
 
 ::: {.callout-tip collapse="true" title="Worked solution"}
@@ -340,7 +360,10 @@ world apart from a single-population world with the same average?
 def sequence_site_mixed(n_reads, rng):
     methylated = 0
     for _ in range(n_reads):
-        m = 0.9 if rng.random() < 0.8 else 0.1     # which cell type this molecule came from
+        if rng.random() < 0.8:
+            m = 0.9        # this molecule came from the common cell type
+        else:
+            m = 0.1        # ...or from the rare one
         if rng.random() < m:
             methylated += 1
     return methylated
