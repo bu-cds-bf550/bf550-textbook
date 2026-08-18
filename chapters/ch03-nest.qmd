@@ -369,9 +369,12 @@ to *this* problem. "The data might be noisy" appears nowhere.
 
 ## When the model is wrong
 
-Three ways for an answer to be wrong, in ascending order of expense. The first is demonstrated
-live. None of them is the model lying — a model cannot lie. Each is a place where the model was
-wrong about the process, and the work is knowing how that would show.
+Why will this section exist in every chapter of this book? George Box gave the standing reason:
+**all models are wrong** [@box1976] — every model encodes a deliberately simplified version of the
+process that produced the data, which is exactly what makes it something you can run — **and some
+are useful** [@box1979]. Useful is not the same as right. A model earns its keep when you know
+*where* its simplifications stop holding and *what that would look like* in the output. Three ways
+this chapter's model can be wrong, in ascending order of expense; the first is demonstrated live.
 
 **First: a well-calibrated rule, applied to the wrong world, fails
 enormously and silently.** Her sensible-sounding quality filter: flag any day

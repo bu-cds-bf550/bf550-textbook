@@ -6,11 +6,13 @@ Rules:
   L2  every {python} chunk is <= 35 lines
   L3  any chunk that touches randomness constructs a seeded default_rng
   L4  boundary tripwire: instructor-repo vocabulary must never appear here
+  L5  register: no deception/agency metaphors for models, negations included
 """
 import re, sys, glob, yaml
 
 MAX_CHUNK = 35
 TRIPWIRE = re.compile(r"INSTRUCTOR NOTES|unseal|planted defect|AIAS [0-9]", re.I)
+REGISTER = re.compile(r"\blies?\b|\blied\b|\blying\b|deceiv|\btricks? you\b|\bfools? you\b", re.I)
 RANDOM = re.compile(r"np\.random|default_rng|\brng\b|random\.")
 SEEDED = re.compile(r"default_rng\(\s*\d+\s*\)")
 
@@ -37,5 +39,8 @@ for path in sorted(glob.glob("chapters/*.qmd")) + ["index.qmd"]:
     hit = TRIPWIRE.search(text)
     if hit:
         print(f"L4 {path}: boundary tripwire: {hit.group(0)!r}"); fail += 1
+    hit = REGISTER.search(text)
+    if hit:
+        print(f"L5 {path}: register (Box, not deception): {hit.group(0)!r}"); fail += 1
 
 sys.exit(1 if fail else print("lint: all clean") or 0)

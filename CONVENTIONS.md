@@ -51,12 +51,14 @@ Nine sections, same order, every chapter. **The order is the pedagogy** — stor
     the current assignments' organisms, parameter values, and question vocabulary. The lint's
     tripwire catches instructor-repo terms; only the author can catch the week's biology.
 
-## Wrong, never lying
+## The Box register
 
-A model cannot lie. When its answer is wrong, the model was wrong about the process that made the
-data — and the interesting question is always *how you would know*. Write failure sections and
-practice problems in that register: model–world mismatch, violated assumptions, answers that are
-wrong in ways that show or don't. Deception language ("the model lies/tricks/fools you") is out.
+Every model encodes a necessarily simplified version of the process that generated the data, so
+every model is wrong somewhere — Box's *all models are wrong, but some are useful* [@box1976;
+@box1979], cited formally in chapter 3. Failure sections and practice problems are written in that
+register: model–world mismatch, violated assumptions, where the simplification stops holding and
+how you would know. Never anthropomorphize a model; it has no intent to describe — and the frame
+is not argued with in the text, it is simply absent. The lint enforces the vocabulary.
 
 ## Practice problems
 
