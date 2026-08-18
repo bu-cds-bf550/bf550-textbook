@@ -4,27 +4,531 @@ week: 3
 act: I
 operation: "nest"
 title: "Nest: why real data is messier than your model"
-concepts: []
-prerequisites: []
-notation_introduced: []
-misconceptions: []
-practice_problems: []
+concepts: [nesting, overdispersion, beta-binomial, variance-as-diagnostic, intraclass-correlation]
+prerequisites: [simulating-a-process, sampling-variability, null-distributions, p-values]
+notation_introduced: [distributed-as-tilde, conditional-bar, beta-mean-concentration, total-variance-decomposition, intraclass-correlation-rho]
+misconceptions:
+  - "If the mean of the simulation matches the data, the simulation is right."
+  - "Deeper sequencing will average away day-to-day biological variability."
+  - "A 95% band built from count noise flags about 5% of real observations."
+practice_problems:
+  - id: nest-1
+    kind: predict-the-output
+    objective: >
+      Predict which of two nested worlds produces the wider count distribution —
+      and what happens to the means — before running the comparison.
+    probes: overdispersion
+    solution: worked
+  - id: nest-2
+    kind: modify-the-story
+    objective: >
+      Replace the Beta layer with a two-state story and say what changes
+      downstream, connecting nesting to next week's mixing operation.
+    probes: nesting
+    solution: worked
+  - id: nest-3
+    kind: hand-calculate
+    objective: >
+      Compute the variance of a two-reads, two-states instance by hand and see
+      the two pieces of the total variance separately.
+    probes: total-variance-decomposition
+    solution: worked
+  - id: nest-4
+    kind: spot-the-lie
+    objective: >
+      Diagnose why a rising overdispersion factor does not mean deeper
+      sequencing makes biology noisier.
+    probes: intraclass-correlation-rho
+    solution: worked
+  - id: nest-5
+    kind: read-the-notation
+    objective: >
+      Translate the two-line hierarchical notation into a runnable simulation
+      loop and back into one honest sentence.
+    probes: distributed-as-tilde
+    solution: worked
 ---
 
 # Nest: why real data is messier than your model {#sec-nest}
 
-> **Under construction.**
-
-*The question this chapter answers:* **Your null says this is impossible and real data does it constantly. Which one is wrong?**
-
-<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
 ## The problem
+
+A collaborator has been sequencing her own gut microbiome, one stool sample
+every morning for a month, 5,000 reads a day. She is tracking one organism —
+*Akkermansia muciniphila*, a mucus-dwelling bacterium that keeps showing up in
+studies of metabolic health. Out of curiosity she plots the fraction of each
+day's reads assigned to it, and comes to you unsettled: **the same microbe, in
+the same gut, read 2.9% on one day and 11.6% twelve days later.** A fourfold
+swing. Nothing about her diet changed that she can name.
+
+Her question, and this chapter's: **is that swing real biology, or is it just
+sequencing noise — and how would you tell?**
+
+You already own half the answer. In @sec-simulating-a-process you built
+sampling variability from scratch: a fixed truth, observed through a finite
+sample, wobbles. The reflex you trained there says: *simulate it.* Fix the
+abundance at its average, draw 5,000 reads a day, and see whether fourfold
+swings fall out.
+
+Run that reflex and it fails loudly — and the failure is the lesson. This
+chapter is about the one-line change that fixes it, which happens to be the
+same change that nearly every serious model of sequencing data is built on.
+
 ## The story
+
+Here is the story the reflex tells. Each day, every one of 5,000 reads is a
+draw from the gut's transcript pool, and lands on *Akkermansia* with some fixed
+probability — say 6%, her monthly average. Days differ only because 5,000
+draws differ. One level of randomness.
+
+Now listen to what the story asserts: that her gut on Tuesday and her gut on
+Friday are *the same pool*, and only the sampling differs. But an actual gut is
+not a sealed jar. Diet shifts the pool. Transit time shifts it. Where in the
+stool the sampling spoon landed shifts it. None of that is measurement error —
+the **true fraction itself moves from day to day.**
+
+So the honest story has two levels:
+
+1. **The day draws a truth.** Each morning, the gut's actual *Akkermansia*
+   fraction $p$ is drawn from somewhere around 6% — some days genuinely richer,
+   some genuinely poorer.
+2. **The reads draw from the day.** Given today's truth, 5,000 reads sample it,
+   with exactly the one-level wobble you already know.
+
+That is the whole move, and it is this week's operation: **nesting**. A number
+that was a fixed *setting* of your process becomes an *output* of another
+process. Yesterday a parameter; today a draw.
+
+For step 1 we need a way to produce numbers that vary around an average but
+stay between 0 and 1. The **Beta distribution** does exactly this, and it is
+convenient to steer it by two dials: a *mean* $\mu$ (where the values center)
+and a *concentration* $\kappa$ (how tightly they cluster — large $\kappa$,
+tight; small $\kappa$, wild). You do not need to know anything else about it
+yet. Draw from it and look.
+
 ## The story, as code
+
+Ten lines. The two levels of the story are the two lines inside the loop —
+read them in order and you have read the model.
+
+```{python}
+import numpy as np
+
+def one_month(mean_abund, concentration, n_reads, n_days, rng):
+    """Daily read counts for one organism, when its true abundance
+    itself varies from day to day."""
+    counts = []
+    for _ in range(n_days):
+        p_today = rng.beta(mean_abund * concentration,
+                           (1 - mean_abund) * concentration)  # the day draws a truth
+        counts.append(rng.binomial(n_reads, p_today))          # the reads draw from the day
+    return np.array(counts)
+
+rng = np.random.default_rng(17)
+month = one_month(mean_abund=0.06, concentration=100, n_reads=5000,
+                  n_days=30, rng=rng)
+props = month / 5000
+print("daily fractions:", np.round(props[:8], 3), "...")
+print(f"min {props.min():.1%}   max {props.max():.1%}")
+```
+
+That minimum and maximum should look familiar: **this is her month.** A 2.9%
+day and an 11.6% day, from a process whose average abundance never moved off
+6%. We built her data before analyzing it — which means we can now ask the
+simulator questions she cannot ask her gut.
+
+```{python}
+#| fig-cap: "One simulated month. Every point is an ordinary day — same average abundance, different daily truth."
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(7, 3))
+days = np.arange(1, 31)
+ax.plot(days, props * 100, "o-", color="#2a78d6", lw=1.5, ms=5)
+lo_d, hi_d = props.argmin(), props.argmax()
+ax.annotate(f"{props[lo_d]:.1%}", (days[lo_d], props[lo_d]*100),
+            xytext=(0, -14), textcoords="offset points", ha="center")
+ax.annotate(f"{props[hi_d]:.1%}", (days[hi_d], props[hi_d]*100),
+            xytext=(0, 8), textcoords="offset points", ha="center")
+ax.set_xlabel("day of month")
+ax.set_ylabel("% of reads assigned")
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
 ## Playing with the story
+
+The claim on the table is that nesting — not deeper biology, not a broken
+sequencer — produces swings that big. Interrogate it the way you interrogated
+every simulator so far: run the world with the nesting *on* and *off*, holding
+everything else identical.
+
+**Predict first.** Same mean abundance, same 5,000 reads. When the daily truth
+stops moving, what happens to the average count? What happens to the spread?
+Commit to both before the next chunk.
+
+```{python}
+rng = np.random.default_rng(7)
+fixed  = rng.binomial(5000, 0.06, size=1000)              # nesting OFF: one truth every day
+nested = one_month(0.06, 100, 5000, 1000, rng)            # nesting ON
+for name, x in [("fixed truth", fixed), ("nested truth", nested)]:
+    print(f"{name}: mean {x.mean():6.1f}   sd {x.std():6.1f}")
+```
+
+The means agree — around 300 reads either way. The spreads do not, and it is
+not subtle. **Nesting left the average alone and multiplied the spread
+severalfold.** Hold onto the first half of that sentence; it comes back in
+"How it lies to you."
+
+Now turn the concentration dial and watch the spread respond while the mean
+refuses to move:
+
+```{python}
+#| fig-cap: "Three worlds with the same mean. Concentration controls the spread and only the spread."
+rng = np.random.default_rng(11)
+worlds = {"fixed truth": rng.binomial(5000, 0.06, size=2000),
+          "κ = 500": one_month(0.06, 500, 5000, 2000, rng),
+          "κ = 25":  one_month(0.06, 25, 5000, 2000, rng)}
+colors = {"fixed truth": "#2a78d6", "κ = 500": "#eb6834", "κ = 25": "#1baf7a"}
+
+fig, ax = plt.subplots(figsize=(7, 3.2))
+bins = np.arange(0, 1200, 20)
+for name, x in worlds.items():
+    ax.hist(x, bins=bins, histtype="step", lw=2, color=colors[name], label=name)
+    print(f"{name:>12}: mean {x.mean():6.1f}   sd {x.std():6.1f}")
+ax.set_xlabel("reads assigned to the organism (of 5,000)")
+ax.set_ylabel("days")
+ax.legend(frameon=False)
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+Three worlds, one mean, three utterly different widths — roughly 17, 56, and
+230 reads of standard deviation. A histogram of *means* could never tell these
+worlds apart. **The spread is where nesting lives**, and from now on the
+standard deviation is your instrument for detecting it.
+
+One more dial: sequencing depth. The most common first instinct — hers too —
+is that more reads will calm the data down. Deeper sequencing does shrink the
+*sampling* wobble; you watched that happen in @sec-simulating-a-process. But
+the day-to-day movement of the truth is not sampling wobble:
+
+```{python}
+rng = np.random.default_rng(13)
+for depth in (500, 5000, 50000):
+    counts = one_month(0.06, 100, depth, 2000, rng)
+    print(f"depth {depth:>6}: sd of daily fraction {np.std(counts/depth):.4f}")
+print(f"floor — the truth's own spread:            {np.sqrt(0.06*0.94/101):.4f}")
+```
+
+A hundredfold increase in depth moves the day-to-day spread from 0.026 to
+0.024, and there it stops — pinned at the truth's own spread. **Depth buys you
+a sharper picture of each day. It cannot make the days stop differing**,
+because that variation is in the gut, not in the machine.
+
 ## Where the numbers come from
+
+Turn it around. You have her real month — thirty counts. The story has two
+dials, $\mu$ and $\kappa$. Which settings produced her data?
+
+The mean is the easy dial: her monthly average pins $\mu$ near 0.06. The
+concentration is the interesting one, and the spread is how you read it. Do it
+the way you recovered every unknown so far — run candidate worlds forward and
+ask which one produces months that look like hers:
+
+```{python}
+#| fig-cap: "Which world produces a month like hers? Candidate spreads against the observed one."
+rng = np.random.default_rng(17)
+observed = one_month(0.06, 100, 5000, 30, rng)   # her month — the one from the opening
+print(f"her month: mean {observed.mean():.1f}, sd {observed.std():.1f}\n")
+
+rng = np.random.default_rng(19)
+candidates = (25, 100, 500)
+sds = [one_month(0.06, k, 5000, 2000, rng).std() for k in candidates]
+for k, sd in zip(candidates, sds):
+    print(f"world κ={k:>3}: sd {sd:.1f}")
+
+fig, ax = plt.subplots(figsize=(6, 3))
+ax.bar([f"κ={k}" for k in candidates], sds, color="#2a78d6", width=0.55)
+ax.axhline(observed.std(), color="#eb6834", lw=2)
+ax.text(2.35, observed.std() + 6, "her month", color="#eb6834", ha="right")
+ax.set_ylabel("sd of daily reads")
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+Her month's spread sits on top of the $\kappa = 100$ world and nowhere near
+the other two. Thirty days is enough to place her between "wild" and "tight" —
+though notice it is a coarse instrument: distinguishing $\kappa = 100$ from
+$\kappa = 120$ on thirty days is hopeless, and knowing *when* your estimate
+stops being trustworthy is a question you now have the tools to answer
+yourself: simulate a world where you know $\kappa$, estimate it, repeat, and
+watch how far the estimates scatter.
+
 ## The notation
+
+Everything you have built compresses to two lines. This is the *last* form of
+the idea, not the first — you have been running it for pages:
+
+$$
+p_d \sim \mathrm{Beta}(\mu\kappa,\ (1-\mu)\kappa)
+\qquad\qquad
+X_d \mid p_d \sim \mathrm{Binomial}(n,\ p_d)
+$$
+
+Read aloud: *day $d$'s truth $p_d$ is distributed as a Beta with mean $\mu$
+and concentration $\kappa$; given that truth, the count $X_d$ is binomial.*
+The symbol $\sim$ says "is a draw from" — it is the `rng.beta(...)` line. The
+bar $\mid$ says "given" — it is the fact that `p_today` is already in hand
+when the binomial line runs. Two lines of notation, two lines inside your
+loop. Together the pair is called the **beta-binomial**, and it is what your
+`one_month` function has been sampling from all along.
+
+The spread you measured all chapter also has a closed form worth meeting:
+
+$$
+\mathrm{Var}(X) \;=\; n\,\mu(1-\mu)\,\bigl[\,1 + (n-1)\rho\,\bigr],
+\qquad \rho = \frac{1}{\kappa + 1}
+$$
+
+The first factor is the binomial variance you already know. The bracket is the
+**overdispersion factor** — everything nesting adds. $\rho$ is the *intraclass
+correlation*: two reads from the same day share that day's truth, so they are
+correlated, and $\rho$ is by how much. Check it against your simulation: at
+$n = 5000$, $\kappa = 100$, the bracket is $1 + 4999/101 \approx 50.5$, so the
+sd should be $\sqrt{50.5} \approx 7.1$ times the binomial 16.8 — about 119.
+Scroll up: that is the $\kappa=100$ bar.
+
+Notice what the formula confirms about depth: the bracket *grows* with $n$.
+More reads per day make the count-scale gap between binomial and reality
+wider, not narrower. Depth is not a cure for overdispersion; it is a
+magnifying glass on it.
+
 ## A worked design
+
+Every week, this section works the four design questions — Frame, Decompose,
+Select, Anticipate — on a problem *adjacent* to the week's ideas, so you can
+see what a finished design looks like before writing your own. Adjacent, not
+identical: the moves transfer; the answers do not.
+
+> **The problem.** A hospital's infection-control team tracks *C. difficile*
+> infections in each of 14 wards, monthly, and has three years of records.
+> Wards differ in size and occupancy shifts month to month. Fourteen months
+> ago the lab switched to a more sensitive assay. Current practice alarms on
+> any ward-month above the hospital-wide average, and the team is exhausted:
+> the alarm fires constantly, almost always on nothing. **Which ward-months
+> are true outbreaks, and how would you set an alarm that does not cry wolf?**
+
+**Frame.** A ward-month's count comes from how many patient-days the ward ran
+and a per-patient-day risk. That risk is not one number: it wanders month to
+month for ordinary reasons — season, case mix, who happened to be admitted —
+before any outbreak enters the story. So ordinary months are already a nested
+process: the month draws a risk, the patients draw infections from the risk.
+An *outbreak* is a third thing: a month whose risk jumped beyond that
+ordinary wander. The alarm's job is therefore to know the width of ordinary —
+both levels of it. I am ignoring ward specialty beyond each ward's own
+baseline, and renovations, for now. The assay change I cannot ignore: it
+shifts every count after month 22 upward for reasons that have nothing to do
+with outbreaks. I do not yet know whether to split the record there or adjust
+across it — marking that open rather than pretending.
+
+**Decompose.** (1) A per-ward baseline risk, from its own history. (2) The
+month-to-month spread of ordinary risk around that baseline — the nesting,
+one number per ward. (3) An ordinary range for each ward-month given its
+occupancy, wide enough to contain both levels. (4) Calibration: on months
+everyone agrees were ordinary, how often does my alarm fire? That rate is the
+design's report card. (5) The assay correction, whichever form it takes.
+
+**Select.** I do not need a named test. Whatever the method is, it must
+produce a per-ward-month ordinary range that (a) widens with the ward's own
+demonstrated wander, not just its size, and (b) can be audited on the past —
+I can run it over three years of known history and count its false alarms
+before anyone trusts it live. Simulating from a fitted two-level story does
+this. The rejected alternative is the current rule — alarm on exceeding the
+hospital average — which I concede is simpler to explain to staff; it fails
+because it compares every ward to a mixture of unlike wards, so it fires
+loudest exactly where care is hardest, forever.
+
+**Anticipate.** The failure that worries me most is circular: I estimate
+"ordinary wander" from a history that *contains outbreaks*, so outbreaks
+inflate my ordinary range and the alarm learns to sleep through the very
+thing it watches for. I need either a cleaned history or a robust spread
+estimate, and I do not yet know which. Second, the assay change will look
+like a hospital-wide outbreak starting at month 23 to any method that spans
+it naively. Third, small wards: one infection can double a small ward's
+monthly count, so a rule tuned on large wards will either always fire on
+small ones or never. Fourth — and I flag it honestly — this design cannot
+distinguish a ward outbreak from a community-wide seasonal surge arriving
+through admissions; whether that counts as failure depends on what the team
+does with an alarm, and I would ask them before deciding.
+
+**What to notice.** The design commits (a two-level ordinary range,
+simulation over a fitted story), names what it ignores and what it refuses to
+ignore, concedes a real virtue of the rejected alternative, marks two open
+questions as open — and its Anticipate names failures that could only happen
+to *this* problem. "The data might be noisy" appears nowhere.
+
 ## How it lies to you
+
+Three lies, in ascending order of expense. The first is demonstrated live.
+
+**Lie one: a well-calibrated rule, applied to the wrong world, fails
+enormously and silently.** Her sensible-sounding quality filter: flag any day
+outside the 95% band that read-sampling noise predicts around the monthly
+mean. Built honestly — from the exact null-distribution logic of
+@sec-repeat — it flags 5% of days in the world it assumes. Apply it to
+ordinary nested days:
+
+```{python}
+rng = np.random.default_rng(23)
+lo, hi = 300 - 1.96 * 16.8, 300 + 1.96 * 16.8      # binomial 95% band
+tests = {"fixed truth": rng.binomial(5000, 0.06, 1000),
+         "nested, κ=500": one_month(0.06, 500, 5000, 1000, rng),
+         "nested, κ=25": one_month(0.06, 25, 5000, 1000, rng)}
+print(f"band: [{lo:.0f}, {hi:.0f}] reads — built to flag 5%\n")
+for name, days in tests.items():
+    frac = np.mean((days < lo) | (days > hi))
+    print(f"{name:>14}: flags {frac:.0%} of perfectly ordinary days")
+```
+
+Five percent, fifty-four percent, eighty-seven percent. Even the *mild*
+nesting — $\kappa = 500$, spread you could miss by eye — makes the filter
+flag more than half of reality as anomalous. Nothing errored. Every number
+printed. The rule was correct in its world; its world was wrong, and no line
+of its code can tell you so.
+
+**Lie two: matching the mean feels like validation, and means are blind
+here.** Every world in this chapter has the same mean. A simulation of her
+month with nesting accidentally omitted reproduces the average abundance
+perfectly and is wrong about everything this chapter cares about. When you
+check a stochastic simulation — yours, a collaborator's, an agent's — check
+the property the model exists to produce. Here that is the spread. A test on
+the mean would pass; it is the wrong test.
+
+**Lie three: "we'll sequence deeper" spends money to stand still.** The depth
+dial showed it and the bracket $1+(n-1)\rho$ proved it: past the point where
+sampling noise dips under the truth's own spread, additional depth purchases
+precision about individual days and nothing about the variability question.
+If day-to-day variation is what you study, replicate *days*, not reads.
+
+Where this goes: in @sec-glms the same gap — counts more variable than one
+level of randomness predicts — reappears as the reason RNA-seq tools model
+genes with a negative binomial, which is precisely a Poisson whose rate is
+itself a draw. You will have built that machinery here, a level at a time.
+
 ## Practice problems
--->
+
+Ungraded, solutions worked. The point of doing them is doing them *before*
+looking.
+
+### 3.1 · Predict the output {#sec-nest-p1}
+
+Same mean, same depth, two concentrations. Before running: which world has
+the larger sd, roughly by how much (use the bracket), and what do the two
+means do?
+
+```{python}
+#| eval: false
+rng = np.random.default_rng(29)
+a = one_month(0.06, 2000, 5000, 4000, rng)
+b = one_month(0.06,   50, 5000, 4000, rng)
+print(a.mean(), a.std())
+print(b.mean(), b.std())
+```
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Both means sit near $5000 \times 0.06 = 300$ — concentration never touches
+the mean. The brackets are $1 + 4999/2001 \approx 3.5$ and
+$1 + 4999/51 \approx 99$, so the sds are about $16.8\sqrt{3.5} \approx 31$
+and $16.8\sqrt{99} \approx 167$ — the loose world roughly five times wider.
+Run it and check yourself; every number above came from structure, not from
+the code.
+:::
+
+### 3.2 · Modify the story {#sec-nest-p2}
+
+Your collaborator suspects her gut has exactly two regimes — quiet weeks and
+flare weeks — rather than a smooth spread of daily truths. Modify `one_month`
+so each day's truth is 0.03 with probability 0.7 and 0.13 otherwise. Before
+running: what happens to the mean, the sd, and the *shape* of the count
+histogram?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+```{python}
+def one_month_flares(n_reads, n_days, rng):
+    counts = []
+    for _ in range(n_days):
+        p_today = 0.03 if rng.random() < 0.7 else 0.13   # two regimes
+        counts.append(rng.binomial(n_reads, p_today))
+    return np.array(counts)
+
+rng = np.random.default_rng(31)
+x = one_month_flares(5000, 4000, rng)
+print(f"mean {x.mean():.1f}   sd {x.std():.1f}")
+```
+The mean lands at $5000\,(0.7 \times 0.03 + 0.3 \times 0.13) = 300$ — again.
+The sd is inflated for the same reason as always: the truth moves. What
+changes is the shape — two humps, one per regime, instead of one wide hill.
+A parameter drawn from *two possibilities* instead of a smooth distribution
+is still nesting; next week that idea gets its own name and its own week,
+because deciding *which regime a day came from* turns out to be an entire
+family of methods.
+:::
+
+### 3.3 · Hand-calculate {#sec-nest-p3}
+
+Tiny instance, by hand: $n = 2$ reads. The day's truth is 0.2 or 0.8 with
+equal probability. Compute the variance of the count, then compare to a fixed
+truth of 0.5 (which has the same mean). Two numbers, no computer.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Within-day: $\mathrm{Var}(X \mid p) = 2p(1-p) = 0.32$ for both regimes, so
+the average within-day variance is $0.32$. Between days:
+$E[X \mid p] \in \{0.4, 1.6\}$, centered at 1, so the variance *of the means*
+is $0.36$. Total: $0.32 + 0.36 = 0.68$, against $2 \times 0.25 = 0.5$ for the
+fixed truth — inflation of 36%, more than half of it from the truth moving.
+That two-piece addition — average of the within-variances plus variance of
+the means — is the total-variance decomposition, and it is the entire
+$[1 + (n-1)\rho]$ bracket in miniature.
+:::
+
+### 3.4 · Spot the lie {#sec-nest-p4}
+
+A colleague runs the depth experiment, computes the overdispersion factor at
+each depth, and reports: *"the factor was 5.9 at 500 reads and 50.5 at 5,000
+— deeper sequencing makes the microbiome more variable, so we should sequence
+shallower to keep the data clean."* The arithmetic is right. What is wrong?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+The factor compares the count spread to what *binomial noise alone* would
+give at that depth — and binomial noise shrinks as depth grows, so the ratio
+rises even though the biology never changed. Look at the daily *fraction*
+instead: its spread was 0.026 at 500 reads and 0.024 at 5,000, pinned at the
+truth's own floor. Nothing got noisier; the denominator got quieter. Sequence
+shallow and the day-to-day signal drowns in sampling noise — the opposite of
+clean. The violated assumption is that the factor measures biology; it
+measures biology *relative to depth*.
+:::
+
+### 3.5 · Read the notation {#sec-nest-p5}
+
+Translate into a simulation loop, then into one sentence a bench scientist
+would accept:
+
+$$
+\lambda_i \sim \mathrm{Gamma}(2,\ 1/2) \qquad Y_i \mid \lambda_i \sim \mathrm{Poisson}(\lambda_i)
+$$
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+```{python}
+rng = np.random.default_rng(37)
+lam = rng.gamma(shape=2, scale=2, size=5)   # each unit draws its own rate
+y = rng.poisson(lam)                        # then counts from that rate
+print(np.round(lam, 2), y)
+```
+Sentence: "each sample has its own underlying rate, drawn from a spread of
+plausible rates, and the count we observe is Poisson noise around that
+sample's rate." This pair — a Gamma-distributed rate inside a Poisson — is
+the negative binomial, the beta-binomial's twin for open-ended counts, and
+the model under nearly every RNA-seq differential-expression tool you will
+ever run. You just simulated it in three lines.
+:::

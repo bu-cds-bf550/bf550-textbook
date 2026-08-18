@@ -35,6 +35,22 @@ Nine sections, same order, every chapter. **The order is the pedagogy** — stor
    only exercises here. This is the safety property that lets the book be fully open to a
    student's AI tutor; the lint enforces a tripwire on instructor-repo vocabulary.
 
+## Learned writing the exemplar (ch. 3)
+
+8. **Every number in prose is a number a chunk printed.** Chunks execute at render time, so prose
+   that states a value the reader can see contradicted is worse than no value. Workflow: run the
+   chunks locally (a chunk-extractor script suffices), then write prose to the printed output —
+   loosely rounded ("about 120"), exactly quoted only where the chunk prints it.
+9. **Worked solutions live in collapsed callouts** — `::: {.callout-tip collapse="true"
+   title="Worked solution"}` — so the reader must act to see them. Solution *chunks* execute like
+   any other and follow the same seed rule.
+10. **Chapter openings return.** Where possible, the dataset the reader meets in "The problem" is
+    the one "Where the numbers come from" resolves — same seed, stated openly. The arc from
+    unexplained observation to recovered parameters is the chapter's shape, not decoration.
+11. **The boundary sweep is part of authoring, not review.** Before pushing, grep the chapter for
+    the current assignments' organisms, parameter values, and question vocabulary. The lint's
+    tripwire catches instructor-repo terms; only the author can catch the week's biology.
+
 ## Practice problems
 
 Five kinds, recurring in every chapter, so the shape of practice is stable while content varies:
