@@ -1,3 +1,8 @@
+# Runtime for rendering the book. CI renders every chapter, so a chapter that imports
+# something not pinned here fails the build for everyone -- add the dependency in the same
+# commit as the chapter that needs it. Chapters 6-12 (evaluation, regression, GLMs, trees,
+# PCA, clustering) will need scipy and scikit-learn, and possibly pandas; they are not
+# pinned yet because nothing imports them.
 numpy==2.1.*
 matplotlib==3.9.*
 jupyter==1.*
