@@ -18,7 +18,7 @@ Style contract: [`CONVENTIONS.md`](CONVENTIONS.md). Chapters follow a fixed nine
 
 ## License
 
-- **Prose and figures:** [CC BY-NC 4.0](LICENSE) — share and adapt with attribution, not commercially.
+- **Prose and figures:** [CC BY-NC-SA 4.0](LICENSE) — share and adapt with attribution, not commercially, and under the same licence.
 - **Code** (chunks and `tools/`): [MIT](LICENSE-CODE) — reuse freely, including in your own analyses.
 
 ## Status
