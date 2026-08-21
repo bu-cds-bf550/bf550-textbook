@@ -105,7 +105,7 @@ it `probes`, and `solution: worked`. Solutions are in the book; they are ungrade
 
 Lecture decks live in `slides/`, one revealjs deck per topic-opening meeting, rendered by the same
 CI into the book's site (`/slides/`). Everything above applies to them — the register, the seed
-rule, plain code, the palette, the language rules. Two things are theirs alone:
+rule, plain code, the palette, the language rules. Three things are theirs alone:
 
 - **Activation, not delivery.** The reading carries first exposure; a deck puts the week's ideas
   to work — predict-then-run with the room, the design launch, the working-time agenda. A deck
@@ -113,6 +113,10 @@ rule, plain code, the palette, the language rules. Two things are theirs alone:
 - **Chunks reuse the chapter's seeds**, so what is projected in class is exactly what students
   find in the reading. No speaker notes in the deck itself — anyone can press `s`; instructor
   run-sheets live in the course-internal repository.
+- **Slide headings are a public interface.** Because the run-sheets live in another repository,
+  they cite slides by heading text rather than by position — a deck can gain a slide without
+  invalidating anyone's clock table. The cost is that renaming a heading is a breaking change:
+  the run-sheet for that week has to change with it. Renumbering is free; renaming is not.
 
 ## Frontmatter schema
 
