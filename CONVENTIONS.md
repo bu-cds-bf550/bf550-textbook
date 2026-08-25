@@ -103,20 +103,14 @@ it `probes`, and `solution: worked`. Solutions are in the book; they are ungrade
 
 ## Slides
 
-Lecture decks live in `slides/`, one revealjs deck per topic-opening meeting, rendered by the same
-CI into the book's site (`/slides/`). Everything above applies to them — the register, the seed
-rule, plain code, the palette, the language rules. Three things are theirs alone:
-
-- **Activation, not delivery.** The reading carries first exposure; a deck puts the week's ideas
-  to work — predict-then-run with the room, the design launch, the working-time agenda. A deck
-  that re-teaches its chapter is too long.
-- **Chunks reuse the chapter's seeds**, so what is projected in class is exactly what students
-  find in the reading. No speaker notes in the deck itself — anyone can press `s`; instructor
-  run-sheets live in the course-internal repository.
-- **Slide headings are a public interface.** Because the run-sheets live in another repository,
-  they cite slides by heading text rather than by position — a deck can gain a slide without
-  invalidating anyone's clock table. The cost is that renaming a heading is a breaking change:
-  the run-sheet for that week has to change with it. Renumbering is free; renaming is not.
+Lecture decks do **not** live here. They are Quarto revealjs sources in the course-site
+repository (`bu-cds-bf550.github.io/slides/`), rendered into the course site with a PDF beside
+each deck. The register, the seed rule, plain code, the palette, and the language rules above
+still apply to them, and three conventions are theirs alone -- activation not delivery; chunks
+reuse the chapter's seeds so what is projected is what students find in the reading; slide
+headings are a public interface cited by the instructor run-sheets -- documented in that
+repository's `slides/README.md`. Decks were briefly colocated with the book (commit 2d1c46e); the
+course site now executes code in CI, which removed the reason.
 
 ## Frontmatter schema
 

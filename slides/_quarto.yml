@@ -1,9 +1,0 @@
-project:
-  output-dir: ../_book/slides
-
-format:
-  revealjs:
-    theme: simple
-    slide-number: true
-    hash: true
-    footer: "BF550 · bu-cds-bf550.github.io/bf550-textbook"

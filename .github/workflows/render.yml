@@ -21,8 +21,6 @@ jobs:
       - uses: quarto-dev/quarto-actions/setup@v2
       - name: Render book
         run: quarto render
-      - name: Render slides into the book site
-        run: quarto render slides
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _book
