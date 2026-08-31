@@ -1,6 +1,6 @@
 ---
 id: linear-regression
-week: 8
+unit: 8
 act: II
 operation: "condition"
 concepts: []

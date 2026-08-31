@@ -1,6 +1,6 @@
 ---
 id: simulating-a-process
-week: 1
+unit: 1
 act: I
 operation: "build"
 concepts: [generative-process, simulation, seeds, distribution, binomial-counts, sampling-variability, structural-checks]

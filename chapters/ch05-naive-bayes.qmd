@@ -1,6 +1,6 @@
 ---
 id: naive-bayes
-week: 5
+unit: 5
 act: II
 operation: "mix + repeat"
 concepts: []
