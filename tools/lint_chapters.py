@@ -64,5 +64,6 @@ for unit, path, fm in sorted(chapter_meta):
             print(f"L6 {path}: prerequisite {prereq!r} is not introduced by any earlier chapter"); fail += 1
     known.add(fm.get("id"))
     known.update(fm.get("concepts") or [])
+    known.update(fm.get("notation_introduced") or [])   # notation ids are introductions too
 
 sys.exit(1 if fail else print("lint: all clean") or 0)
