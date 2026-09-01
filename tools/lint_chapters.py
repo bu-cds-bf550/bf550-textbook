@@ -2,7 +2,7 @@
 """Lint chapter .qmd files against the conventions a machine can check.
 
 Rules:
-  L1  frontmatter parses and carries id, unit; exactly one H1, carrying {#sec-<id>}
+  L1  frontmatter parses and carries id, week; exactly one H1, carrying {#sec-<id>}
       (title lives in the H1 only — a frontmatter title would render a duplicate heading)
   L2  every {python} chunk is <= 35 lines
   L3  any EXECUTED chunk that touches randomness constructs a seeded default_rng
@@ -10,7 +10,7 @@ Rules:
   L4  boundary tripwire: instructor-repo vocabulary must never appear here
   L5  register: no deception/agency metaphors for models, negations included
   L6  self-contained: every prerequisite a chapter declares is a concept (or id)
-      introduced by an earlier-unit chapter -- nothing leans on outside background
+      introduced by an earlier-week chapter -- nothing leans on outside background
 """
 import re, sys, glob, yaml
 
@@ -30,7 +30,7 @@ for path in sorted(glob.glob("chapters/*.qmd")) + ["index.qmd"]:
             print(f"L1 {path}: no frontmatter"); fail += 1; continue
         try:
             fm = yaml.safe_load(m.group(1))
-            missing = [k for k in ("id", "unit") if k not in fm]
+            missing = [k for k in ("id", "week") if k not in fm]
             if missing:
                 print(f"L1 {path}: missing {missing}"); fail += 1
             if "title" in fm:
@@ -38,7 +38,7 @@ for path in sorted(glob.glob("chapters/*.qmd")) + ["index.qmd"]:
             h1s = re.findall(r"^# .*$", text, re.M)
             if len(h1s) != 1 or f'{{#sec-{fm.get("id")}}}' not in h1s[0]:
                 print(f"L1 {path}: need exactly one H1 ending {{#sec-{fm.get('id')}}}, found {len(h1s)}"); fail += 1
-            chapter_meta.append((fm.get("unit", 99), path, fm))
+            chapter_meta.append((fm.get("week", 99), path, fm))
         except yaml.YAMLError as e:
             print(f"L1 {path}: bad yaml: {e}"); fail += 1
     for chunk in re.findall(r"```\{python\}\n(.*?)```", text, re.S):
@@ -55,14 +55,15 @@ for path in sorted(glob.glob("chapters/*.qmd")) + ["index.qmd"]:
     if hit:
         print(f"L5 {path}: register (Box, not deception): {hit.group(0)!r}"); fail += 1
 
-# L6: the concept graph -- prerequisites must be introduced by earlier units
+# L6: the concept graph -- prerequisites must be introduced by earlier weeks
 ASSUMED = set()   # background allowed without introduction; grow deliberately, never casually
 known = set(ASSUMED)
-for unit, path, fm in sorted(chapter_meta):
+for week, path, fm in sorted(chapter_meta):
     for prereq in fm.get("prerequisites") or []:
         if prereq not in known:
             print(f"L6 {path}: prerequisite {prereq!r} is not introduced by any earlier chapter"); fail += 1
     known.add(fm.get("id"))
     known.update(fm.get("concepts") or [])
+    known.update(fm.get("notation_introduced") or [])   # notation ids are introductions too
 
 sys.exit(1 if fail else print("lint: all clean") or 0)
