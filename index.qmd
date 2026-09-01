@@ -15,7 +15,7 @@ anything that counts.
 Every chapter has the same nine sections, in the same order, from a biological question through
 running code to — only at the end — the standard notation. Two are worth a word here so no
 chapter has to explain itself. *A worked design* is a complete pass at the four design questions
-(Frame, Decompose, Select, Anticipate) on a problem near the week's ideas but never the week's
+(Frame, Decompose, Select, Anticipate) on a problem near the unit's ideas but never the unit's
 assignment: a finished design to see before you write your own. *When the model is wrong* closes
 every chapter, because every model simplifies the process it describes, and knowing where yours
 stops holding is the skill this course cares about most.

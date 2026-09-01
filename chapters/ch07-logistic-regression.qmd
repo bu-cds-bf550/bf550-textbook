@@ -1,6 +1,6 @@
 ---
 id: logistic-regression
-week: 7
+unit: 7
 act: II
 operation: "condition"
 concepts: [condition-operation, no-story-for-x, boundary-reading, separation]

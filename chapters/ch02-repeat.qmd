@@ -1,6 +1,6 @@
 ---
 id: repeat
-week: 2
+unit: 2
 act: I
 operation: "repeat"
 concepts: [null-distribution, p-value, multiple-testing, false-discovery, repeat-composition, flat-p-histogram, direction-after-looking]
@@ -70,13 +70,13 @@ times, what happens to the answers?**
 
 ## The story
 
-This week's operation is **repeat**, and it composes what you already own. One site is last
+This unit's operation is **repeat**, and it composes what you already own. One site is last
 chapter's story twice: tumor's true fraction $m$, normal's true fraction $m$ — *the same $m$,
 because we are building the world where nothing is going on* — each observed through finite
 reads in finite samples. The whole experiment is that story repeated 1,200 times, one $m$ per
 site, spread across the genome's range.
 
-The world where nothing is going on has a name — the **null world** — and this week's work is
+The world where nothing is going on has a name — the **null world** — and this unit's work is
 building it explicitly. It answers a question no amount of staring at her real data can: *what
 do purely accidental differences look like, at this depth, with these group sizes, across this
 many sites?* Whatever that world produces, her data must beat.
@@ -232,7 +232,7 @@ against false ones admitted, and defending that trade is part of reporting the l
 
 ## The notation
 
-Two pieces of shorthand this week, both small. The p-value, said precisely:
+Two pieces of shorthand this unit, both small. The p-value, said precisely:
 
 > *the p-value is the probability that the null world produces a result at least as extreme as
 > the one observed.*
@@ -294,7 +294,7 @@ unanswerable this early, and saying so is a finding.
 
 ## When the model is wrong
 
-Box's warning from @sec-simulating-a-process applies with a twist this week: the null world *is
+Box's warning from @sec-simulating-a-process applies with a twist this unit: the null world *is
 a model* — the most important one you built — and everything the scan concluded assumed it was
 the right model of "nothing going on." Three ways that can fail.
 

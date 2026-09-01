@@ -1,6 +1,6 @@
 ---
 id: evaluation
-week: 6
+unit: 6
 act: II
 operation: "repeat"
 concepts: [held-out-discipline, cv-knob-tuning, leakage, permutation-null, calibration, evaluation-is-all-you-have]

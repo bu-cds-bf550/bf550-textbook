@@ -1,6 +1,6 @@
 ---
 id: nest
-week: 3
+unit: 3
 act: I
 operation: "nest"
 concepts: [nesting, overdispersion, beta-binomial, variance-as-diagnostic, intraclass-correlation, gamma-poisson-contract, calibrated-rule-wrong-world, two-state-layer, box-register, hidden-layer-inferred]
@@ -23,7 +23,7 @@ practice_problems:
     kind: modify-the-story
     objective: >
       Replace the Beta layer with a two-state story and say what changes
-      downstream, connecting nesting to next week's mixing operation.
+      downstream, connecting nesting to next unit's mixing operation.
     probes: nesting
     solution: worked
   - id: nest-3
@@ -95,7 +95,7 @@ So the honest story has two levels:
 2. **The reads draw from the day.** Given today's truth, 5,000 reads sample it,
    with exactly the one-level wobble you already know.
 
-That is this week's operation: **nesting**. A number
+That is this unit's operation: **nesting**. A number
 that was a fixed *setting* of your process becomes an *output* of another
 process. Yesterday a parameter; today a draw.
 
@@ -472,7 +472,7 @@ The mean lands at $5000\,(0.7 \times 0.03 + 0.3 \times 0.13) = 300$ — again.
 The sd is inflated for the same reason as always: the truth moves. What
 changes is the shape — two humps, one per regime, instead of one wide hill.
 A parameter drawn from *two possibilities* instead of a smooth distribution
-is still nesting; next week that idea gets its own name and its own week,
+is still nesting; in the next unit that idea gets its own name and its own unit,
 because deciding *which regime a day came from* turns out to be an entire
 family of methods.
 :::

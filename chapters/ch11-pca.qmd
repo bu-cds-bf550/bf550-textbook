@@ -1,6 +1,6 @@
 ---
 id: pca
-week: 11
+unit: 11
 act: III
 operation: "latent"
 concepts: [latent-continuous, reduced-space, scree-honesty, projection-not-data]

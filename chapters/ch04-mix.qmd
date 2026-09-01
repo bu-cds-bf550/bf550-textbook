@@ -1,6 +1,6 @@
 ---
 id: mix
-week: 4
+unit: 4
 act: II
 operation: "mix"
 concepts: [prior-likelihood-posterior, mixing-proportion, pseudocounts, identifiability, labels-known-then-hidden]
