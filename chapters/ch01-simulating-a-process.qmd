@@ -3,9 +3,10 @@ id: simulating-a-process
 unit: 1
 act: I
 operation: "build"
-concepts: [generative-process, simulation, seeds, distribution, binomial-counts, sampling-variability, structural-checks]
+concepts: [generative-process, simulation, seeds, distribution, binomial-counts, sampling-variability, structural-checks, likelihood, forward-grid-inversion, hidden-layer-intuition, mixture-seed, truth-as-input]
 prerequisites: []
 notation_introduced: [distributed-as-tilde, binomial-notation, expected-value-informal]
+constructs_introduced: [names-and-assignment, import-statement, for-loop, range-repeat, if-elif-else, comparison, def-return, list-and-append, tuple-literal, dict-literal, f-string, print-call, zip-pairs, abs-call, seeded-rng, rng-distribution-draws, numpy-array, array-reductions, list-comprehension, docstring, plotting]
 misconceptions:
   - "The observed fraction is the true fraction."
   - "A simulation that runs and returns plausible values is a correct simulation."
