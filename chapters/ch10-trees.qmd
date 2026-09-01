@@ -2,28 +2,720 @@
 id: trees
 week: 10
 act: III
-operation: ""
-concepts: []
-prerequisites: []
-notation_introduced: []
-misconceptions: []
-practice_problems: []
+operation: "repeat"
+concepts: [storyless-epistemics, resampling-instability, importance-not-causation]
+prerequisites: [held-out-discipline, permutation-null, repeat-composition, three-answers-p-gg-n, boundary-reading, truth-as-input, no-story-for-x]
+notation_introduced: [ensemble-bagging, permutation-importance]
+constructs_introduced: [list-call]
+misconceptions:
+  - "The genes at the top of an importance ranking are the mechanism."
+  - "A method with no assumptions is safer than a model with wrong ones."
+  - "The tree the algorithm grew is the structure the biology has."
+practice_problems:
+  - id: tree-1
+    kind: predict-the-output
+    objective: >
+      Predict the permutation importance of a column the trees never split
+      on — and of a constant column — before running either.
+    probes: importance-not-causation
+    solution: worked
+  - id: tree-2
+    kind: modify-the-story
+    objective: >
+      Plant two more causal genes in the world and re-grade the ranking:
+      which of the five does the forest find, and what does it cost the
+      original three?
+    probes: storyless-epistemics
+    solution: worked
+  - id: tree-3
+    kind: hand-calculate
+    objective: >
+      Find the best first split of a six-patient toy by counting, by hand.
+    probes: resampling-instability
+    solution: worked
+  - id: tree-4
+    kind: spot-the-mismatch
+    objective: >
+      Diagnose a forest whose reported accuracy was measured on the
+      bootstrap samples it was trained on.
+    probes: storyless-epistemics
+    solution: worked
+  - id: tree-5
+    kind: read-the-output
+    objective: >
+      Interpret an importance ranking in three honest sentences — what it
+      says, what it cannot say, and what to check next.
+    probes: importance-not-causation
+    solution: worked
 ---
 
 # Trees and forests: the honest outlier {#sec-trees}
 
-> **Under construction.**
-
-*The question this chapter answers:* **Which genes mark treatment response?**
-
-<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
 ## The problem
+
+Two hundred patients on a new therapy, labeled responder or non-responder,
+with expression measured for 200 genes. The clinicians' question is not a
+probability machine this time: **which genes mark response?** They want a
+ranked shortlist to take back to the bench.
+
+Every method so far began the same way: write the story of how the data
+arose, then invert it. Try that here. Response depends on some unknown
+tangle of pathways — maybe gene A matters only when gene B is off, maybe
+three routes lead to the same outcome — and you cannot write that story;
+nobody can. The methods of this act's remaining chapters share this
+starting point: **no generative story is on offer.** What replaces it is
+the discipline you built in @sec-evaluation and one new habit — since you
+cannot write the world's story, you *plant* one: simulate a world where you
+decide which genes matter, run the storyless method on it, and grade its
+answers against the truth you set. Simulation stops being the model and
+becomes the test bed. That is how this chapter knows anything at all about
+the method it teaches.
+
 ## The story
+
+What is missing is the story of the *data*. The algorithm, though, has a
+story of its own, and it is short enough to tell forward like any process.
+
+A **decision tree** grows by asking questions. Take all 200 patients and
+try every question of the form *"is gene $j$'s expression below $c$?"* —
+every gene, every cutoff. Each question splits the patients into two rooms;
+the best question is the one whose two rooms sort the labels best, which
+you can score by plain counting: put the majority label in each room and
+count how many patients that gets right. Ask the best question, split, and
+repeat inside each room — each with its own best question — until the
+rooms are small or pure. Prediction is walking a new patient down the
+questions to a room and answering with the room's majority.
+
+No probabilities, no likelihood, no distribution anywhere — questions and
+counting. The tree's **depth** — how many questions deep the rooms go — is
+its capacity dial: a depth-1 tree (a **stump**) can say one thing; a tree
+deep enough to give every patient a private room is @sec-evaluation's
+memorizer, verbatim. And unlike every model so far, a tree's questions can
+express *interactions* without being told to look: "gene 5 low" can be the
+best question *inside* the room where gene 12 was high, and nothing like a
+slope ever gets written down.
+
 ## The story, as code
+
+The planted world first, openly: 200 genes, of which exactly three matter —
+genes 0, 1, and 2, acting through thresholds — and 197 that do nothing.
+
+```{python}
+import numpy as np
+
+def sigmoid(eta):
+    return 1 / (1 + np.exp(-eta))
+
+def make_patients(n, n_genes, rng):
+    """Expression in [0,1]. Response is driven by genes 0, 1, 2 — only."""
+    rows = []
+    for _ in range(n):
+        rows.append(rng.random(n_genes))
+    X = np.array(rows)
+    labels = []
+    for i in range(n):
+        eta = -3.2
+        if X[i, 0] > 0.6:
+            eta += 3.0
+        if X[i, 1] < 0.4:
+            eta += 2.6
+        if X[i, 2] > 0.5:
+            eta += 2.2
+        if rng.random() < sigmoid(eta):
+            labels.append("responder")
+        else:
+            labels.append("non-responder")
+    return X, np.array(labels)
+
+rng = np.random.default_rng(331)
+X, y = make_patients(200, 200, rng)
+X_test, y_test = make_patients(600, 200, rng)
+print("responders:", (y == "responder").sum(), "of 200 in train;",
+      (y_test == "responder").sum(), "of 600 in test")
+```
+
+The tree machinery is three short functions — the question-scorer, the
+grower, the walker:
+
+```{python}
+CUTS = np.arange(0.1, 0.95, 0.1)
+
+def majority(labels):
+    if len(labels) == 0:
+        return "non-responder"
+    if (labels == "responder").mean() >= 0.5:
+        return "responder"
+    return "non-responder"
+
+def best_split(X, y, gene_pool):
+    """The question that sorts the labels best, scored by counting."""
+    best_correct = None
+    for j in gene_pool:
+        column = X[:, j]
+        for cut in CUTS:
+            went_left = (column < cut)
+            n_left = went_left.sum()
+            n_resp_left = (y[went_left] == "responder").sum()
+            n_resp_right = (y == "responder").sum() - n_resp_left
+            n_right = len(y) - n_left
+            correct = max(n_resp_left, n_left - n_resp_left) + \
+                      max(n_resp_right, n_right - n_resp_right)
+            if best_correct is None or correct > best_correct:
+                best_correct = correct
+                best_gene, best_cut = j, cut
+    return best_gene, best_cut
+```
+
+```{python}
+def grow_stump(X, y, gene_pool):
+    gene, cut = best_split(X, y, gene_pool)
+    went_left = (X[:, gene] < cut)
+    return {"gene": gene, "cut": cut,
+            "left": {"leaf": majority(y[went_left])},
+            "right": {"leaf": majority(y[went_left == False])}}
+
+def grow_depth2(X, y, gene_pool):
+    """One question, then one more question inside each room."""
+    gene, cut = best_split(X, y, gene_pool)
+    tree = {"gene": gene, "cut": cut}
+    went_left = (X[:, gene] < cut)
+    for side, in_side in (("left", went_left), ("right", went_left == False)):
+        if in_side.sum() < 15:
+            tree[side] = {"leaf": majority(y[in_side])}
+        else:
+            tree[side] = grow_stump(X[in_side], y[in_side], gene_pool)
+    return tree
+
+def tree_predict(tree, patient):
+    if patient[tree["gene"]] < tree["cut"]:
+        node = tree["left"]
+    else:
+        node = tree["right"]
+    if "leaf" in node:
+        return node["leaf"]
+    if patient[node["gene"]] < node["cut"]:
+        return node["left"]["leaf"]
+    return node["right"]["leaf"]
+```
+
+```{python}
+def tree_accuracy(tree, X, y):
+    correct = 0
+    for patient, truth in zip(X, y):
+        if tree_predict(tree, patient) == truth:
+            correct += 1
+    return correct / len(y)
+
+all_genes = np.arange(200)
+tree = grow_depth2(X, y, all_genes)
+print("root question: gene", tree["gene"], "<", round(tree["cut"], 1))
+print("next questions: genes", tree["left"].get("gene"), "and", tree["right"].get("gene"))
+print("train accuracy:", round(tree_accuracy(tree, X, y), 3),
+      "  held-out:", round(tree_accuracy(tree, X_test, y_test), 3))
+```
+
+Grade it against the planted truth. The root asks about gene 2 — real —
+and one child asks about gene 0 — real. The other child asks about gene
+183, which does *nothing*: with 1,800 candidate questions and 200 noisy
+patients, some noise gene always looks helpful in some room
+(@sec-evaluation's selection lesson, now inside the algorithm). Held-out
+accuracy 0.698 against a training 0.765 — the gap you know how to read.
+
 ## Playing with the story
+
+How much should you trust that tree's *shape*? The test bed can answer:
+resample the patients — a bootstrap draw, same size, drawn with
+replacement — and regrow:
+
+```{python}
+rng = np.random.default_rng(347)
+for _ in range(5):
+    picks = rng.integers(0, 200, size=200)      # a bootstrap draw of patients
+    retree = grow_depth2(X[picks], y[picks], all_genes)
+    print("root: gene", retree["gene"],
+          "  children:", retree["left"].get("gene"), retree["right"].get("gene"))
+```
+
+Five plausible versions of the same study, five different trees — the root
+moves among the real genes, the children wander into noise. A single tree
+is a high-variance answer: honest about this dataset, unstable across
+datasets. You have seen this instability tamed before: when one draw
+wobbles, **repeat and average** — @sec-repeat's operation, pointed at fits
+instead of samples. Grow many trees, each on its own bootstrap draw, each
+consulting a random handful of genes per question (so the trees do not all
+lean on the same lucky ones), and let them vote. That is **bagging**, and
+the voting crowd is a **random forest**:
+
+```{python}
+def grow_forest(X, y, n_trees, pool_size, rng):
+    trees = []
+    for _ in range(n_trees):
+        picks = rng.integers(0, len(y), size=len(y))
+        Xb, yb = X[picks], y[picks]
+        pool = rng.integers(0, X.shape[1], size=pool_size)   # a random handful
+        gene, cut = best_split(Xb, yb, pool)
+        tree = {"gene": gene, "cut": cut}
+        went_left = (Xb[:, gene] < cut)
+        for side, in_side in (("left", went_left), ("right", went_left == False)):
+            if in_side.sum() < 15:
+                tree[side] = {"leaf": majority(yb[in_side])}
+            else:
+                pool = rng.integers(0, X.shape[1], size=pool_size)
+                tree[side] = grow_stump(Xb[in_side], yb[in_side], pool)
+        trees.append(tree)
+    return trees
+
+rng = np.random.default_rng(349)
+forest = grow_forest(X, y, 150, 60, rng)
+```
+
+```{python}
+def forest_predict(trees, patient):
+    votes = 0
+    for tree in trees:
+        if tree_predict(tree, patient) == "responder":
+            votes += 1
+    if votes >= len(trees) / 2:
+        return "responder"
+    return "non-responder"
+
+def forest_accuracy(trees, X, y):
+    correct = 0
+    for patient, truth in zip(X, y):
+        if forest_predict(trees, patient) == truth:
+            correct += 1
+    return correct / len(y)
+
+print("forest held-out accuracy:", round(forest_accuracy(forest, X_test, y_test), 3))
+```
+
+Grade the claim precisely, because the test bed lets you. Twenty single
+resampled trees score between 0.582 and 0.762 on held-out patients — mean
+0.685, and *which* one your study would have produced is luck. The forest
+scores 0.690: **not better than the average tree — better than the
+lottery.** Averaging does not add signal that the trees cannot see; it
+removes the variance in which answer you happen to publish. One stable
+0.69 instead of a draw from 0.58-to-0.76 is the entire purchase, and for a
+method whose single answers change shape under resampling, it is a
+purchase worth making. (There is a third ensemble in wide use — *boosting*,
+where each new tree focuses on the mistakes of the ones before it, a
+sequence rather than a crowd; it often squeezes out a few more points of
+accuracy and is worth meeting in a standard treatment once this chapter's
+machinery feels ordinary.)
+
+The claim that needs grading most is the deliverable — the *ranking*.
+
 ## Where the numbers come from
+
+The clinicians asked which genes matter. The forest offers two ways to
+answer, and the planted truth grades both.
+
+**Count the questions.** Every split in every tree chose a gene; tally the
+choices:
+
+```{python}
+#| fig-cap: "Split counts across the forest. The three planted genes tower; the best noise gene was consulted 9 times out of 400 questions."
+import matplotlib.pyplot as plt
+
+times_chosen = []
+for _ in range(200):
+    times_chosen.append(0)
+for tree in forest:
+    times_chosen[tree["gene"]] += 1
+    for side in ("left", "right"):
+        if "gene" in tree[side]:
+            times_chosen[tree[side]["gene"]] += 1
+times_chosen = np.array(times_chosen)
+
+order = np.argsort(times_chosen)
+top12 = order[188:]
+colors = []
+for g in top12:
+    if g < 3:
+        colors.append("#eb6834")     # a planted causal gene
+    else:
+        colors.append("#c3c2b7")     # noise
+fig, ax = plt.subplots(figsize=(7, 3))
+ax.bar(np.arange(12), times_chosen[top12], color=colors)
+ax.set_xticks(np.arange(12))
+ax.set_xticklabels(top12)
+ax.set_xlabel("gene (orange = truly causal)")
+ax.set_ylabel("times chosen to split")
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+Genes 1, 0, and 2 are chosen 42, 40, and 34 times; the busiest of the 197
+noise genes manages 9. On this world, the tally finds the truth — a
+sentence you can only say because the truth was planted.
+
+**Ask each gene to prove it.** The tally rewards being *chosen*, which can
+reflect luck of the pool. The sharper instrument is @sec-evaluation's
+permutation null, aimed at one column instead of the labels: **shuffle one
+gene's values across patients** — destroying that gene's information and
+nothing else — and measure how much held-out accuracy falls. A gene the
+forest truly uses leaves a dent; a passenger leaves none:
+
+```{python}
+def shuffled_column_accuracy(trees, X, y, gene, rng):
+    shuffled_values = X[np.argsort(rng.random(len(y))), gene]
+    rows = []
+    for i in range(len(y)):
+        row = X[i] * 1.0                 # a copy of this patient's profile
+        row[gene] = shuffled_values[i]   # with one gene's value dealt at random
+        rows.append(row)
+    return forest_accuracy(trees, np.array(rows), y)
+
+base = forest_accuracy(forest, X_test, y_test)
+rng = np.random.default_rng(353)
+for gene in (0, 1, 2, 3, 7, 100):
+    drop = base - shuffled_column_accuracy(forest, X_test, y_test, gene, rng)
+    print(f"gene {gene:>3}: accuracy drop when shuffled = {drop:+.3f}")
+```
+
+Genes 0, 1, 2: drops of 0.090, 0.055, 0.050. Genes 3, 7, 100: zero. This
+is **permutation importance**, the readout the clinicians will receive —
+and notice its pedigree: it is a null distribution, built by destroying
+exactly the thing whose value you want to measure, needing no story of the
+data whatsoever. The tools of @sec-repeat survive the loss of the story;
+that is why they run the rest of this book.
+
 ## The notation
+
+Honestly, almost none — which is itself the note to take. A forest has
+*settings*, not parameters with meanings: `n_trees` (more is better until
+it is merely slower), the pool size per question (smaller pools, more
+independent trees), the leaf-size floor (bigger leaves, calmer trees).
+Nothing like $\beta_1$ exists to carry a scientific claim; the model's
+entire interpretable surface is its measured behavior — held-out accuracy,
+and importance, defined operationally as *the held-out damage done by
+destroying one column*. The decoder gains three working words: **bagging**
+(bootstrap-aggregating: resample, refit, vote), **ensemble** (the voting
+crowd), **permutation importance** (the shuffle-one-column dent).
+
 ## A worked design
+
+> **The problem.** An agricultural genomics group has 340 field plots.
+> For each: a soil metagenome profile (relative abundance of 600 microbial
+> taxa) and the plot's crop yield. They want the taxa that *matter for
+> yield* — a shortlist for follow-up culturing experiments — and they have
+> no appetite for a generative model of soil ecology, correctly. Design
+> the analysis.
+
+**Frame.** Storyless by necessity: no one can write the process that
+generates a soil community and its effect on yield, and the honest
+deliverable is a ranked shortlist with measured reliability, not a
+mechanism. This is the forest's home terrain — tabular, interaction-heavy,
+hundreds of correlated features — and the design's center of gravity is
+therefore not the fit but the *grading of the readout*: a ranking is a
+scientific claim, and it needs the same treatment as any claim — a test
+bed where the answer is known, and stability under resampling. Two facts
+about the data get flagged before any fitting: taxa abundances are
+*compositional* (they sum to one, so taxa compete for share — one truly
+rising taxon makes others fall in relative terms), and plots sit in
+fields (spatial structure the labels share).
+
+**Decompose.** (1) The forest, on plot-level profiles, graded held-out —
+with the split *by field*, never by plot, or neighboring plots leak shared
+soil into the test set. (2) The planted test bed: simulated yield wired to
+a handful of chosen taxa on the *real* abundance profiles — keeping the
+true correlation structure while owning the truth — to measure how well
+this pipeline's importance ranking recovers known causes at this sample
+size, before anyone reads the real ranking. (3) Permutation importance
+with resampling: rerun the whole pipeline on bootstrap draws and report,
+per taxon, how often it lands in the top twenty — a shortlist with
+stability percentages, not a single lucky ordering. (4) The correlation
+audit: for each shortlisted taxon, its abundance-correlated partners
+listed beside it, because the forest divides credit among stand-ins and
+the bench needs the *cluster*, not one arbitrary member. (5) The
+permutation floor for the whole pipeline: shuffled yields, full rerun —
+if shuffled-yield "importance" looks anything like the real run, stop.
+
+**Select.** Forest over penalized regression as the primary ranker
+because thresholds and interactions are biologically expected here
+(taxa matter in consortia, effects saturate) and the deliverable is a
+ranking, the forest's native output. Penalized regression runs *beside*
+it as the disagreement instrument — taxa ranked high by both methods are
+the safest bench bets; taxa ranked high by only one are flagged with the
+reason (a slope the forest saturated, an interaction the line cannot
+say). The rejected alternative is any single-method pipeline reporting a
+single ranking with no stability measure; the sample size makes ranking
+instability a certainty, and hiding it does not remove it.
+
+**Anticipate.** First, the compositional trap: a single taxon truly
+driving yield drags every other taxon's *relative* abundance down,
+handing the forest anti-correlated stand-ins that will absorb importance
+— the correlation audit and the test bed (which can plant exactly this
+scenario) measure how bad it is here. Second, field confounding: soil pH
+or drainage drives both community and yield; the by-field split limits
+the damage to honest generalization numbers, but no split converts
+association into mechanism — the shortlist is a *candidate* list for the
+culturing experiments, which are the causal instrument, and every report
+says so. Third, rare taxa: present in six plots, absent in 334 — a tree
+can split on them into tiny lucky rooms; the leaf-size floor and the
+stability percentages are the guards. Fourth, the seductive single tree:
+someone will ask for "the tree" to put in a figure; give them the
+stability numbers instead, because the five-resamples demo is the truth
+about what "the tree" is.
+
+**What to notice.** The test bed is built from the real feature matrix
+with planted truth — the method graded on the data's own correlation
+structure; the deliverable carries stability, partners, and a floor,
+not just an ordering; and the causal claim is explicitly priced out of
+the analysis and into the follow-up experiment.
+
 ## When the model is wrong
+
+With no story to be wrong about, the wrongness relocates — into the
+*readout* and its readers. Three forms, two executed.
+
+**First, executed: correlated features split the credit.** Real
+expression data never offers one clean causal gene; it offers the gene
+and its co-regulated partners, moving together. Make the extreme case —
+append a perfect copy of causal gene 0 as column 200 — and re-grade:
+
+```{python}
+def with_duplicate(X, source_gene):
+    rows = []
+    for i in range(X.shape[0]):
+        row = list(X[i])                 # this patient's profile, as a list
+        row.append(X[i, source_gene])    # plus a copy of the causal gene
+        rows.append(np.array(row))
+    return np.array(rows)
+
+X_dup = with_duplicate(X, 0)
+X_test_dup = with_duplicate(X_test, 0)
+rng = np.random.default_rng(359)
+forest_dup = grow_forest(X_dup, y, 150, 60, rng)
+base_dup = forest_accuracy(forest_dup, X_test_dup, y_test)
+rng = np.random.default_rng(361)
+for gene in (0, 200, 1, 2):
+    drop = base_dup - shuffled_column_accuracy(forest_dup, X_test_dup, y_test, gene, rng)
+    print(f"gene {gene:>3}: accuracy drop when shuffled = {drop:+.3f}")
+```
+
+Gene 0's importance was 0.090 alone; with its copy in the matrix it falls
+to 0.048, and the copy takes 0.080 — the credit divided, and gene 0 now
+ranks *below* gene 1, which did not move. Nothing is broken: when two
+columns carry the same information, shuffling either one leaves the
+forest the other, so neither leaves the full dent. But a reader who takes
+the ranking's order as the biology's order has just been reshuffled by an
+artifact of redundancy. **The ranking's top is not the mechanism's top**;
+it is the list of columns the forest happened to lean on, and correlated
+truth spreads lean. Report correlated clusters together, always.
+
+**Second: importance is not causation, and the planted world makes it
+exact.** Give the world a gene that merely *tracks* gene 0 — downstream
+in its pathway, say, correlated 0.9 and causally inert. The forest will
+split on it (it carries nearly the same information), permutation will
+dent it (the forest leaned on it), and every readout this chapter built
+will crown a gene that does nothing. No protocol error occurred; the
+data genuinely cannot tell "drives response" from "moves with what
+drives response." Only an intervention can — which is why the worked
+design routed its shortlist into culturing experiments rather than
+conclusions. Importance measures *use by the model*, full stop.
+
+**Third: a method with no story still has assumptions — they hide in the
+shape of its answers.** Run the referee match. World one: this chapter's
+threshold-and-interaction world, where the forest already scored 0.69 —
+against it, the best that @sec-logistic-regression's machinery can do on
+any single gene. World two: a smooth one-gene world, risk gliding up a
+sigmoid — the line's home turf — with both methods fit on sixty patients:
+
+```{python}
+best_ll = None                                   # line on the threshold world's best gene
+for b0 in np.arange(-4, 4.05, 0.2):
+    for b1 in np.arange(-8, 8.05, 0.2):
+        prob = sigmoid(b0 + b1 * X[:, 0])
+        is_r = (y == "responder")
+        ll = np.log(prob[is_r]).sum() + np.log(1 - prob[is_r == False]).sum()
+        if best_ll is None or ll > best_ll:
+            best_ll = ll
+            lb0, lb1 = b0, b1
+line_calls = (sigmoid(lb0 + lb1 * X_test[:, 0]) >= 0.5)
+line_acc = (line_calls == (y_test == "responder")).mean()
+print(f"threshold world:  forest {forest_accuracy(forest, X_test, y_test):.2f}"
+      f"   line on gene 0: {line_acc:.2f}")
+```
+
+```{python}
+def make_smooth(n, rng):
+    x = rng.normal(0, 1.5, size=n)
+    labels = []
+    rows = []
+    for value in x:
+        if rng.random() < sigmoid(1.8 * value):
+            labels.append("responder")
+        else:
+            labels.append("non-responder")
+        rows.append(np.array([value]))
+    return np.array(rows), np.array(labels)
+
+rng = np.random.default_rng(367)
+X_sm, y_sm = make_smooth(60, rng)
+X_sm_test, y_sm_test = make_smooth(1000, rng)
+is_r = (y_sm == "responder")
+best_ll = None
+for b0 in np.arange(-1, 1.05, 0.1):
+    for b1 in np.arange(0, 3.05, 0.1):
+        prob = sigmoid(b0 + b1 * X_sm[:, 0])
+        ll = np.log(prob[is_r]).sum() + np.log(1 - prob[is_r == False]).sum()
+        if best_ll is None or ll > best_ll:
+            best_ll = ll
+            sb0, sb1 = b0, b1
+smooth_line_acc = ((sigmoid(sb0 + sb1 * X_sm_test[:, 0]) >= 0.5)
+                   == (y_sm_test == "responder")).mean()
+rng = np.random.default_rng(373)
+forest_smooth = grow_forest(X_sm, y_sm, 100, 1, rng)
+print(f"smooth world:     forest {forest_accuracy(forest_smooth, X_sm_test, y_sm_test):.2f}"
+      f"   line: {smooth_line_acc:.2f}")
+```
+
+On the threshold world the forest reads the interactions no single curve
+can, 0.69 against 0.65. On the smooth world the two *tie* at 0.82 — and
+answer differently everywhere else: the line reports a slope with
+scientific content and glides honestly toward certainty off-range; the
+forest reports a vote share that staircases and, beyond its training
+range, repeats its edge answer forever, flat. Neither method wins a world
+it does not match:
+**method choice is world-dependent, and with the story gone, the only way
+to know which world you are in is the test bed** — plant both kinds of
+truth, grade both methods, and let the planted worlds referee. That
+sentence is Act III's operating manual.
+
 ## Practice problems
--->
+
+Ungraded, solutions worked. Do them before looking.
+
+### 10.1 · Predict the output {#sec-trees-p1}
+
+Two predictions before running: the permutation importance of gene 100
+(never split on by the forest), and of a new column filled with the
+constant 0.5. Which is exactly zero, which is merely near zero, and why
+the difference?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+The constant column's importance is *exactly* zero twice over: no split
+can ever choose it (every cut sorts nobody), and shuffling a constant
+changes nothing — the "shuffled" column is identical. Gene 100's is near
+zero but wobbles by luck (±0.005-ish): shuffling it changes patients'
+profiles, and a few test patients may cross some noise split that
+mentions a *correlated-by-chance* room boundary. The general rule: zero
+importance means "unused," and small nonzero importance is
+indistinguishable from noise — which is why the worked design demanded
+stability percentages instead of a raw ordering.
+:::
+
+### 10.2 · Modify the story {#sec-trees-p2}
+
+Plant two more causal genes — give genes 3 and 4 effects of $+1.5$ and
+$-1.5$ in `make_patients` — regrow the forest, and re-grade both
+importance readouts. Which of the five does the forest find, and what
+happens to the original three's importance values?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+```{python}
+def make_patients_five(n, n_genes, rng):
+    rows = []
+    for _ in range(n):
+        rows.append(rng.random(n_genes))
+    X = np.array(rows)
+    labels = []
+    for i in range(n):
+        eta = -3.9
+        if X[i, 0] > 0.6:
+            eta += 3.0
+        if X[i, 1] < 0.4:
+            eta += 2.6
+        if X[i, 2] > 0.5:
+            eta += 2.2
+        if X[i, 3] > 0.5:
+            eta += 1.5
+        if X[i, 4] > 0.5:
+            eta -= 1.5
+        if rng.random() < sigmoid(eta):
+            labels.append("responder")
+        else:
+            labels.append("non-responder")
+    return X, np.array(labels)
+
+rng = np.random.default_rng(379)
+X5, y5 = make_patients_five(200, 200, rng)
+X5_test, y5_test = make_patients_five(600, 200, rng)
+rng = np.random.default_rng(383)
+forest5 = grow_forest(X5, y5, 150, 60, rng)
+base5 = forest_accuracy(forest5, X5_test, y5_test)
+rng = np.random.default_rng(389)
+for gene in (0, 1, 2, 3, 4, 50):
+    drop = base5 - shuffled_column_accuracy(forest5, X5_test, y5_test, gene, rng)
+    print(f"gene {gene:>3}: {drop:+.3f}")
+```
+The strong three keep clear importance; the new weak two hover just above
+the noise floor — at 200 patients, an effect of 1.5 is near the edge of
+what this readout resolves, and one of them may vanish entirely on your
+run. Everyone's values shrink a little: five genes now share credit that
+three shared before, since accuracy lost by shuffling one gene can be
+partially covered by the other four. Rankings are a fixed pie; adding
+true signal dilutes everyone's slice.
+:::
+
+### 10.3 · Hand-calculate {#sec-trees-p3}
+
+Six patients, two genes, by hand. Expression:
+$(0.2, 0.7), (0.3, 0.9), (0.45, 0.2)$ non-responders;
+$(0.7, 0.8), (0.8, 0.3), (0.9, 0.6)$ responders. Candidate questions:
+gene 0 < 0.5 and gene 1 < 0.5. Count each question's sorted-correctly
+score and crown the better first split.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Gene 0 < 0.5 puts the three non-responders left, the three responders
+right: majority-labels get $3 + 3 = 6$ of 6 correct. Gene 1 < 0.5 puts
+patients 3 and 5 left (one of each label — majority gets 1) and the
+other four right (two of each — majority gets 2): $1 + 2 = 3$... check:
+left room holds $(0.45,0.2)$ non and $(0.8,0.3)$ resp — score 1; right
+room holds two non, two resp — score 2; total 3 of 6, a coin. Gene 0
+wins, 6 to 3, and the stump is already perfect on these six. The whole
+algorithm is this comparison, repeated inside every room.
+:::
+
+### 10.4 · Spot the mismatch {#sec-trees-p4}
+
+A pipeline reports: "Random forest, 500 trees, accuracy 0.97 — measured
+by predicting each training patient from the full forest." The forest's
+held-out accuracy, computed later by a skeptic, is 0.71. Where did 0.97
+come from, and why does a forest make this particular mistake so easy to
+make?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Each training patient appears in the bootstrap draws of roughly
+two-thirds of the trees — so "predicting" that patient uses hundreds of
+trees that had the patient, label and all, in their training sample. The
+0.97 is @sec-evaluation's memorizer score wearing an ensemble. Forests
+make it easy because the bootstrap *almost* provides the fix: each
+patient is missing from about a third of the trees, and scoring each
+patient using only the trees that never saw it — the out-of-bag score —
+is a legitimate held-out estimate hiding inside the same forest. The
+skeptic's 0.71 and a correctly computed out-of-bag score would agree;
+0.97 is the vote of interested parties.
+:::
+
+### 10.5 · Read the output {#sec-trees-p5}
+
+A collaborator's forest, trained to predict metastasis from 400 proteins,
+reports top permutation importances: `P113: 0.061, P114: 0.058,
+P090: 0.031, P201: 0.008`, with the note "P113 and P114 are subunits of
+the same complex." Write the three honest sentences this readout
+supports — what it says, what it cannot say, and what to check next.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+*Says:* the forest's held-out predictions lean heavily on the P113/P114
+complex and moderately on P090; P201 and below are within noise of
+unused. *Cannot say:* whether the complex drives metastasis or tracks
+something that does — importance measures use, not mechanism — and the
+0.061-versus-0.058 ordering between subunits is meaningless, since
+correlated columns split credit arbitrarily (their *sum*, ~0.12, is the
+complex's honest footprint). *Check next:* stability — rerun on
+bootstrap draws and report how often the complex tops the list; and the
+correlation audit around P090, before anyone spends a bench month on a
+stand-in.
+:::
