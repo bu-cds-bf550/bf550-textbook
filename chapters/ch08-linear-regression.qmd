@@ -3,27 +3,693 @@ id: linear-regression
 week: 8
 act: II
 operation: "condition"
-concepts: []
-prerequisites: []
-notation_introduced: []
-misconceptions: []
-practice_problems: []
+concepts: [normal-justified, shrinkage, three-answers-p-gg-n, residual-thinking]
+prerequisites: [condition-operation, normal-named, likelihood, cv-knob-tuning, leakage, prior-likelihood-posterior, separation]
+notation_introduced: [conditional-normal, r-squared, penalized-objective]
+constructs_introduced: []
+misconceptions:
+  - "Least squares is a definition; likelihood is a different method."
+  - "A high training R² means the predictors explain the outcome."
+  - "The penalty is a numerical trick, not a modeling statement."
+practice_problems:
+  - id: lin-1
+    kind: predict-the-output
+    objective: >
+      Predict what doubling the noise does to the fitted slope and to R² —
+      two different fates — before re-running the dial.
+    probes: residual-thinking
+    solution: worked
+  - id: lin-2
+    kind: modify-the-story
+    objective: >
+      Add a genuinely useless predictor and watch what an honest fit does
+      with it — and what its training score does anyway.
+    probes: three-answers-p-gg-n
+    solution: worked
+  - id: lin-3
+    kind: hand-calculate
+    objective: >
+      Referee two candidate lines on three points by summing squared misfits
+      by hand.
+    probes: normal-justified
+    solution: worked
+  - id: lin-4
+    kind: spot-the-mismatch
+    objective: >
+      Diagnose a p ≫ n fit being praised for its training R² of 0.99.
+    probes: shrinkage
+    solution: worked
+  - id: lin-5
+    kind: read-the-notation
+    objective: >
+      Translate the penalized objective into the search loop it prescribes,
+      and name the belief the penalty term encodes.
+    probes: shrinkage
+    solution: worked
 ---
 
 # Regression, and regularization as a prior {#sec-linear-regression}
 
-> **Under construction.**
-
-*The question this chapter answers:* **Can expression predict dose response?**
-
-<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
 ## The problem
+
+A drug-response screen: 40 cell lines, each with a measured expression level
+for one candidate resistance gene, and each with a response — viability, the
+percentage of cells surviving a fixed drug dose. The screening group's
+questions are the practical pair: **does expression predict response — and
+when we use the fitted relationship on a new line, how wrong should we
+expect to be?**
+
+The outcome this time is not a label. Viability is a continuous number, and
+that single change unlocks the week: the machinery is @sec-logistic-regression's
+conditioning move with one piece *removed*. A mean, unlike a probability,
+may roam over all numbers — so the line needs no squashing. What is genuinely
+new is what comes after the fit: the two questions every fitted line must
+answer — *what did the line fail to say* (residuals), and *what happens when
+you have more predictors than samples* — the second being the normal
+condition of genomics, where this chapter ends.
+
 ## The story
+
+Response = line + scatter:
+
+$$
+y_i \;=\; \beta_0 + \beta_1 x_i \;+\; \varepsilon_i
+$$
+
+The line is @sec-logistic-regression's $\eta$, unsquashed. The honest work is
+in $\varepsilon$ — what *is* that scatter? Two cell lines with identical
+expression of the candidate gene will not respond identically, because a
+thousand things this screen never measured also differ: doubling rate, basal
+stress, a hundred other genes, passage number, pipetting. Each nudges the
+response a little, up or down, independently.
+
+That sentence is a simulation. Run it:
+
+```{python}
+import numpy as np
+
+rng = np.random.default_rng(191)
+totals = []
+for _ in range(4000):
+    total = 0.0
+    for _ in range(40):                      # forty small unmeasured influences
+        total += rng.uniform(-1, 1)          # each one small, either direction
+    totals.append(total)
+totals = np.array(totals)
+print("mean of the summed influences:", totals.mean().round(2))
+print("sd of the summed influences:  ", totals.std().round(2))
+```
+
+```{python}
+#| fig-cap: "Four thousand sums of forty small, independent, direction-neutral influences. Nothing about any single influence was bell-shaped."
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(6.5, 3))
+ax.hist(totals, bins=40, color="#2a78d6", edgecolor="white")
+ax.set_xlabel("sum of 40 small influences")
+ax.set_ylabel("simulated cell lines")
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+A bell. Each influence was a flat little uniform — no bell anywhere in the
+ingredients — and the *sum* is a bell anyway. That is not a coincidence of
+this chunk; it is what sums of many small independent effects do, almost
+regardless of what the individual effects look like, and it is why the
+Normal you met briefly in @sec-mix is the default model for noise: **noise
+usually *is* a sum of many small unmeasured influences.** That is the
+Normal, justified — the reason bells are everywhere measurements live, told
+by simulation instead of by theorem.
+
+So the story: expression sets the mean response through a line, and
+everything unmeasured contributes a Normal wobble around it.
+
 ## The story, as code
+
+Twelve lines; true dials $\beta_0 = 85$, $\beta_1 = -6$ (each unit of
+expression costs six points of viability), noise $\sigma = 8$.
+
+```{python}
+def make_lines(n, b0, b1, sigma, rng):
+    """Expression levels, then response = line + Normal scatter."""
+    x = rng.normal(5, 1.5, size=n)
+    y_list = []
+    for expression in x:
+        y_list.append(b0 + b1 * expression + rng.normal(0, sigma))
+    return x, np.array(y_list)
+
+rng = np.random.default_rng(239)
+x, y = make_lines(40, 85, -6, 8, rng)
+print("expression range:", x.min().round(1), "to", x.max().round(1))
+print("response range:  ", y.min().round(0), "to", y.max().round(0))
+```
+
 ## Playing with the story
+
+Fit first, dials after. The fit is the move you have made since week one —
+score every candidate world, keep the best — and the score, this chapter,
+is the **sum of squared misfits**: for each line, how far the response sits
+from the candidate line, squared, summed. You have computed exactly this
+since the unit-4 warm-ups; here it becomes the fitting criterion.
+
+```{python}
+def sum_of_squares(b0, b1, x, y):
+    misfit = y - (b0 + b1 * x)     # each line's distance from the candidate line
+    return (misfit * misfit).sum()
+
+best = None
+for b0 in np.arange(70, 100.5, 0.5):
+    for b1 in np.arange(-9, -3.05, 0.1):
+        score = sum_of_squares(b0, b1, x, y)
+        if best is None or score < best:
+            best = score
+            fit_b0, fit_b1 = b0, b1
+misfit = y - (fit_b0 + fit_b1 * x)
+print(f"best line: {fit_b0} + {fit_b1:.1f}·x   (truth: 85 − 6.0·x)")
+print(f"leftover scatter, sd: {misfit.std():.1f}   (truth: 8)")
+```
+
+The grid lands at $(87.0, -6.3)$ against a truth of $(85, -6)$, and the
+scatter left over after the line has said its piece — the **residuals** —
+has spread 8.1, recovering the world's $\sigma$. Residuals are the
+chapter's second character: everything the line could not say, and the raw
+material of every diagnostic that follows.
+
+```{python}
+#| fig-cap: "The screen, the fitted line, and the line's opinion far beyond the data — where it is not information, only geometry."
+fig, ax = plt.subplots(figsize=(7, 3.4))
+ax.plot(x, y, "o", color="#2a78d6", ms=5)
+grid = np.arange(1, 17, 0.2)
+ax.plot(grid, fit_b0 + fit_b1 * grid, color="#eb6834", lw=2)
+ax.axvspan(x.max(), 16.5, color="#e1e0d9", alpha=0.5)
+ax.axhline(0, color="#898781", lw=1, ls=":")
+ax.set_xlabel("expression of the candidate gene")
+ax.set_ylabel("viability (%)")
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+The shaded region is every expression level the screen never saw, and the
+line marches through it anyway — at expression 16 it predicts a viability
+of −13.8 percent. @sec-simulating-a-process's structural check fails, and
+the message generalizes past the absurdity: **inside the data's range the
+line is an estimate; outside it, the line is an assumption.** Nothing in
+the fit distinguishes the two; you have to.
+
+How much did the line actually explain? The honest fraction — one minus
+the residual spread's share of the original spread — is called $R^2$, and
+because this is a simulation you can watch what it does and does not
+measure. Hold the slope fixed and turn only the noise dial:
+
+```{python}
+for sigma in (4, 8, 16):
+    rng = np.random.default_rng(197)
+    xs, ys = make_lines(40, 85, -6, sigma, rng)
+    best = None
+    for b0 in np.arange(70, 100.5, 0.5):
+        for b1 in np.arange(-9, -3.05, 0.1):
+            score = sum_of_squares(b0, b1, xs, ys)
+            if best is None or score < best:
+                best = score
+                w0, w1 = b0, b1
+    leftover = ys - (w0 + w1 * xs)
+    r_squared = 1 - leftover.var() / ys.var()
+    print(f"sigma {sigma:>2}: fitted slope {w1:.1f}   R² {r_squared:.2f}")
+```
+
+The slope estimate barely moves — around −6 in every world — while $R^2$
+runs from 0.82 to 0.18. Same biology, same effect size, three different
+$R^2$: **it measures how loud the signal is against this world's noise, not
+whether the effect is real or how big it is.** A small $R^2$ with a
+well-estimated slope is a quiet truth; treat "low $R^2$, discard the gene"
+skepticism accordingly.
+
 ## Where the numbers come from
+
+Why *squared* misfits, of all scores? Not convention — a reveal that has
+been waiting since week one. Give the misfits their Normal story,
+$\varepsilon_i \sim \mathrm{Normal}(0, \sigma)$, and write the
+log-likelihood of a candidate line the way @sec-naive-bayes taught: one log
+term per cell line. The Normal's log-density is a constant minus
+$\text{misfit}^2 / (2\sigma^2)$ — so the log-likelihood is a constant
+*minus* the sum of squared misfits over a constant. Score both criteria
+over the same grid and let the code say it:
+
+```{python}
+best_sq = None
+best_ll = None
+for b0 in np.arange(70, 100.5, 0.5):
+    for b1 in np.arange(-9, -3.05, 0.1):
+        misfit = y - (b0 + b1 * x)
+        squares = (misfit * misfit).sum()
+        loglike = (-(misfit * misfit) / (2 * 64)).sum()   # Normal, sigma = 8
+        if best_sq is None or squares < best_sq:
+            best_sq = squares
+            sq_winner = (b0, round(b1, 1))
+        if best_ll is None or loglike > best_ll:
+            best_ll = loglike
+            ll_winner = (b0, round(b1, 1))
+print("least-squares winner:  ", sq_winner)
+print("max-likelihood winner: ", ll_winner)
+```
+
+The same world wins both searches, at every grid resolution, always —
+because minimizing squared misfit *is* maximizing Normal likelihood, one
+criterion wearing two names. Least squares is not a separate method you
+must also learn; it is @sec-simulating-a-process's likelihood machinery,
+specialized to a bell. Which also states its limits plainly: where the
+noise is not a bell, least squares quietly stops being the likelihood — a
+sentence that becomes @sec-glms.
+
+Now the modern shape of the problem. A real screen measures not one
+candidate gene but every gene — thousands of predictors, a few dozen cell
+lines. Simulate the honest polygenic version: 80 genes, *each* with a
+small true effect on response, and only 40 lines to learn from:
+
+```{python}
+def make_polygenic(n_lines, n_genes, true_beta, rng):
+    rows = []
+    for _ in range(n_lines):
+        rows.append(rng.normal(0, 1, size=n_genes))
+    X = np.array(rows)
+    y_list = []
+    for i in range(n_lines):
+        signal = 0.0
+        for j in range(n_genes):
+            signal += true_beta[j] * X[i, j]
+        y_list.append(signal + rng.normal(0, 2))
+    return X, np.array(y_list)
+
+rng = np.random.default_rng(199)
+true_beta = rng.normal(0, 0.4, size=80)     # every gene nudges the response a little
+X, y_scr = make_polygenic(40, 80, true_beta, rng)
+X_new, y_new = make_polygenic(200, 80, true_beta, rng)
+```
+
+Fitting 80 slopes means the line grows terms —
+$\eta_i = \beta_0 + \sum_j \beta_j x_{ij}$ — and the grid cannot search 80
+dimensions at once. It does not need to: search them **one at a time**.
+Hold all other slopes fixed, grid-search this one against what the others
+have not yet explained, move on, and sweep the loop a few times. And build
+in, from the start, the dial this section exists for: add to every
+candidate's score a **penalty**, $\lambda$ times the slope's size squared —
+a charge for being far from zero.
+
+```{python}
+def fit_many_slopes(X, y, lam, sweeps=10):
+    """One-slope-at-a-time grid search; each slope pays lam times its square."""
+    beta = []
+    for _ in range(X.shape[1]):
+        beta.append(0.0)
+    intercept = y.mean()
+    residual = y - intercept
+    candidates = np.arange(-7, 7.01, 0.05)
+    for _ in range(sweeps):
+        for j in range(X.shape[1]):
+            column = X[:, j]
+            unexplained = residual + beta[j] * column   # take slope j back out
+            best_score = None
+            for c in candidates:
+                misfit = unexplained - c * column
+                score = (misfit * misfit).sum() + lam * c * c
+                if best_score is None or score < best_score:
+                    best_score = score
+                    best_c = c
+            beta[j] = best_c
+            residual = unexplained - beta[j] * column
+    return intercept, np.array(beta)
+
+def r_squared_of(intercept, beta, X, y):
+    predictions = []
+    for i in range(X.shape[0]):
+        total = intercept
+        for j in range(X.shape[1]):
+            total += beta[j] * X[i, j]
+        predictions.append(total)
+    leftover = y - np.array(predictions)
+    return 1 - leftover.var() / y.var()
+```
+
+```{python}
+for lam in (0, 25, 125):
+    intercept, beta = fit_many_slopes(X, y_scr, lam)
+    print(f"lambda {lam:>3}:  train R² {r_squared_of(intercept, beta, X, y_scr):.2f}"
+          f"   fresh-lines R² {r_squared_of(intercept, beta, X_new, y_new):.2f}")
+```
+
+Read the $\lambda = 0$ row first: training $R^2$ of **1.00** — with more
+slopes than samples, the fit can thread the line through every point, and
+the training score stops being a measurement at all (@sec-evaluation's
+memorizer, in regression clothes). Its fresh-lines $R^2$ is **−0.50**:
+negative, meaning the fitted model predicts new lines *worse than ignoring
+the genes entirely and guessing the average*. Unpenalized fitting at
+$p \gg n$ is not weak; it is actively destructive.
+
+Now the penalty rows. Charging each slope for its size drags all 80
+toward zero — the fit keeps only as much slope as the data insists on —
+and the fresh-lines score climbs to 0.23. Choose $\lambda$ the way
+@sec-evaluation taught, by cross-validation inside the 40 lines
+(five-fold CV picks 25 here), and never by peeking at fresh data.
+
+Is 0.23 good? The world can say, because we own it:
+
+```{python}
+predictions = []
+for i in range(X_new.shape[0]):
+    total = 0.0
+    for j in range(80):
+        total += true_beta[j] * X_new[i, j]
+    predictions.append(total)
+leftover = y_new - np.array(predictions)
+print("fresh R² of the TRUE slopes:", round(1 - leftover.var() / y_new.var(), 2))
+```
+
+The true slopes themselves — perfection unattainable — score 0.75. The gap
+from 0.23 to 0.75 is not a flaw in the method; it is the price of
+estimating 80 numbers from 40 noisy lines, paid honestly. The penalty's
+real product was the difference between −0.50 and +0.23: it converted a
+model that memorized into a model that admits how little it knows.
+
+And here is the chapter's title, cashed. The penalty is not a numerical
+trick. In @sec-mix's vocabulary, $\lambda\sum_j\beta_j^2$ added to a
+negative log-likelihood *is a prior*, priced in log-space: the belief
+"every gene's effect is small," stated before seeing data, exactly as a
+Normal prior centered at zero would state it. Tight prior, large
+$\lambda$; flat prior, $\lambda = 0$ — and $\lambda = 0$'s disaster above
+is what flat belief costs when data is scarce. There are other beliefs to
+encode: a penalty on the slopes' absolute sizes instead of squares — the
+**lasso** — encodes "most genes' effects are exactly zero," a prior with a
+taste for zeros that this polygenic world would reward less than a sparse
+world would. Choosing a penalty *is* choosing a prior; the fit will hold
+whichever belief you priced in, so price the one you mean.
+
+One sentence of map, because the next three chapters are its territory:
+when predictors outnumber samples there are three honest answers —
+**penalize** them (this chapter), **rank** them and keep few
+(@sec-trees), or **combine** them into few (@sec-pca).
+
 ## The notation
+
+$$
+Y_i \mid x_i \;\sim\; \mathrm{Normal}\!\big(\beta_0 + \beta_1 x_i,\ \sigma\big)
+$$
+
+— @sec-logistic-regression's conditional line with the Normal in the
+Binomial's seat and no squashing, because a mean may roam. $R^2$ enters
+the decoder as $1 - \mathrm{Var}(\text{residuals})/\mathrm{Var}(y)$: the
+fraction of the outcome's spread the line accounted for, *in this world's
+noise*. The penalized criterion is written and read as words first:
+
+$$
+\text{score}(\beta) \;=\; \underbrace{\sum_i \big(y_i - \eta_i\big)^2}_{\text{misfit}} \;+\; \underbrace{\lambda \sum_j \beta_j^2}_{\text{price of slope}}
+$$
+
+— minimize the total. No matrices were needed to say any of this, and none
+will be: the summation form is the course's contract. Readers heading for
+the linear-algebra formulation will find it in any standard treatment;
+what they will find here is what it means.
+
 ## A worked design
+
+> **The problem.** A proteomics group wants to predict protein abundance
+> from mRNA level — transcripts are cheap to measure, proteins are not.
+> They have matched mRNA and protein measurements for about 3,000 genes in
+> one cell type, and they know the folklore: the correlation is real but
+> disappointing. Deliver a predictor, and an honest account of how good it
+> can be.
+
+**Frame.** One conditioned story per gene: protein = line in mRNA +
+scatter, where the scatter is not measurement error alone — it is
+translation efficiency, protein degradation, buffering — biology that
+mRNA genuinely does not determine. That makes the *residual spread itself
+a deliverable*: the group is asking, in this chapter's words, for both
+the fitted line and $\sigma$, and the folklore ("real but disappointing")
+is a claim that $R^2$ is modest no matter how well we fit. I am treating
+genes as exchangeable draws from one relationship to start — knowingly
+false, since gene families differ — and the design's second half is about
+letting that assumption fail visibly. Log scales for both axes, because
+abundances span orders of magnitude and lines live on the scale where
+scatter is roughly even.
+
+**Decompose.** (1) The single-line fit on log scales, by the grid;
+residual spread reported *with* the slope, as the answer to "how wrong
+will we be." (2) The $R^2$-in-context number: measured, then compared
+against a simulation of the best case — if protein were line-plus-bell
+from mRNA with the observed $\sigma$, what $R^2$ would we see? — so
+"disappointing" gets a denominator. (3) The residual audit: residuals
+against mRNA level (fan shape → the relationship's spread changes with
+expression), and residuals grouped by gene annotation (secreted, ribosomal,
+regulatory) to let the one-line assumption fail in named places. (4) A
+held-out grade, splitting *by gene*, never by measurement — two
+measurements of one gene in both halves is leakage wearing a lab coat.
+(5) The deliverable: per-gene predictions with one honest interval, plus
+the short list of annotation groups where the line should not be trusted.
+
+**Select.** One global line, then per-group lines only where the residual
+audit demands them — because 3,000 genes support two parameters
+magnificently and support 3,000 gene-specific parameters not at all;
+gene-level lines would be the $\lambda = 0$ disaster of this chapter in
+biological clothing. If per-group fits multiply, the penalty returns as a
+prior pulling group slopes toward the global one — shrinkage across
+groups, stated as the belief "groups differ a little, not arbitrarily."
+The rejected alternative is a flexible black-box regressor; with one
+predictor, its extra capacity mostly learns the scatter, and the group's
+question — *how predictable is protein from mRNA, in principle?* — is
+answered by the line's honesty, not by squeezing the last drop.
+
+**Anticipate.** First, measurement error in *mRNA* (the predictor, not
+just the outcome) flattens fitted slopes toward zero — the prediction
+survives, but any biological reading of the slope inherits the bias, and
+I would say so before someone quotes the slope in a grant. Second, the
+detection floor: proteins below the assay's sensitivity enter as zeros
+that are not zeros, bending the line's low end; they need flagging or a
+floor model, not silent inclusion. Third, the exchangeability failure the
+audit is built to catch — if ribosomal genes sit on their own line, the
+global $\sigma$ overstates error for them and understates it elsewhere;
+the residual-by-annotation plot is the tripwire. Fourth, the temptation to
+report the training $R^2$; the by-gene split exists so the reported number
+survives new genes.
+
+**What to notice.** The residual spread is treated as a scientific answer,
+not a leftover; the split respects the data's structure (genes, not
+rows); and the one flexible choice (per-group lines) arrives with a prior
+to restrain it — this chapter's penalty, reused as design sense.
+
 ## When the model is wrong
+
+Box's clause — **all models are wrong** [@box1976] — with this chapter's
+three specific ways, ordered by how much damage they do unseen.
+
+**First, executed: confounding — the failure no fit can repair.** Suppose
+the screen was run in two batches, and the second batch both grew colder
+(shifting expression up) and got an older drug stock (shifting response
+down). The gene does *nothing* in this world:
+
+```{python}
+rng = np.random.default_rng(211)
+batch_list, expr_list, resp_list = [], [], []
+for i in range(40):
+    if i < 20:
+        batch = 0
+    else:
+        batch = 1
+    expr_list.append(rng.normal(5 + 2 * batch, 1.0))    # batch shifts expression
+    resp_list.append(70 - 12 * batch + rng.normal(0, 5))  # and response; gene does nothing
+    batch_list.append(batch)
+x_b = np.array(expr_list)
+y_b = np.array(resp_list)
+in_second = (np.array(batch_list) == 1)
+
+def fitted_slope(x, y, b0_lo, b0_hi):
+    best = None
+    for b0 in np.arange(b0_lo, b0_hi, 0.5):
+        for b1 in np.arange(-8, 8.05, 0.1):
+            score = sum_of_squares(b0, b1, x, y)
+            if best is None or score < best:
+                best = score
+                slope = b1
+    return slope
+
+print(f"pooled fit, slope: {fitted_slope(x_b, y_b, 60, 110):.1f}")
+print(f"within batch 1, slope: {fitted_slope(x_b[in_second == False], y_b[in_second == False], 40, 110):.1f}")
+print(f"within batch 2, slope: {fitted_slope(x_b[in_second], y_b[in_second], 40, 110):.1f}")
+```
+
+Pooled, the fit reports a slope of −4.3 — expression costs viability,
+publishable. Within either batch, the slope is a wobble around zero. The
+batch moved both variables, the line dutifully connected them, and
+*nothing inside the regression can tell you* — no residual plot, no
+held-out score, no penalty. Expression genuinely does predict response in
+the pooled data; it just does not *cause* any of it, and prediction was
+never the group's real question. The repairs live at design time —
+randomize lines to batches, block, measure the confounder and put it in
+the model as @sec-logistic-regression put the delivery batch in. A fitted
+slope answers "how do these move together, here"; the stronger reading
+must be earned outside the fit.
+
+**Second, executed: the noise is not a bell, and the misfit is
+structured.** Let the outcome be a count — colonies, reads, cells — whose
+rate rises with the predictor:
+
+```{python}
+#| fig-cap: "Residuals from a straight-line fit to count data. The spread grows with the fitted value — the misfit has structure the Normal story cannot say."
+rng = np.random.default_rng(223)
+dose = rng.uniform(1, 8, size=60)
+colony_list = []
+for level in dose:
+    colony_list.append(rng.poisson(5 * level))    # a count whose rate rises with dose
+colonies = np.array(colony_list)
+
+best = None
+for b0 in np.arange(-10, 10.5, 0.5):
+    for b1 in np.arange(0, 8.05, 0.1):
+        score = sum_of_squares(b0, b1, dose, colonies)
+        if best is None or score < best:
+            best = score
+            c0, c1 = b0, b1
+fitted = c0 + c1 * dose
+residuals = colonies - fitted
+
+fig, ax = plt.subplots(figsize=(7, 3.2))
+ax.plot(fitted, residuals, "o", color="#2a78d6", ms=5)
+ax.axhline(0, color="#898781", lw=1)
+low = (dose < 3.5)
+high = (dose > 5.5)
+ax.set_xlabel("fitted count")
+ax.set_ylabel("residual")
+ax.spines[["top", "right"]].set_visible(False)
+print(f"residual sd at low dose:  {residuals[low].std():.1f}")
+print(f"residual sd at high dose: {residuals[high].std():.1f}")
+plt.show()
+```
+
+The line through the middle is fine; the *scatter around it* fans — sd 3.5
+at low doses, 5.5 at high — because count noise grows with the count, as
+you have known since @sec-simulating-a-process. The Normal story says one
+$\sigma$ everywhere; this data disagrees, in a shape the residual plot
+makes unmissable. The line's slope is still roughly right; what breaks is
+everything downstream of the noise model — intervals, likelihoods, any
+claim about which points are surprising. When the outcome is a count, the
+bell was the wrong story from the start, and the fix is not a patch on
+$\sigma$: it is conditioning the count's own distribution the way this
+chapter conditioned the Normal's mean. That is @sec-glms, whole.
+
+**Third: the range, revisited as a habit.** The extrapolation figure made
+the point comically — negative viability — but its quiet form is the
+dangerous one: a prediction at expression 9 in a screen that saw 1.7 to
+8.2 is only slightly outside, wears no minus sign, and is exactly as
+unearned. Every fitted line ships with its training range; predictions
+outside it are hypotheses, and honest tools say so mechanically (the
+worked design's range check, and @sec-logistic-regression's, exist for
+this).
+
 ## Practice problems
--->
+
+Ungraded, solutions worked. Do them before looking.
+
+### 8.1 · Predict the output {#sec-linear-regression-p1}
+
+The noise-dial chunk ran $\sigma = 4, 8, 16$. Before rerunning it with
+$\sigma = 32$: what happens to the fitted slope, and what happens to
+$R^2$? Two different answers, with two different reasons.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+$R^2$ keeps collapsing toward zero — the line explains a fixed amount of
+spread while the noise quadruples, so the explained *fraction* shrinks
+(roughly fourfold from $\sigma=16$'s 0.18). The fitted slope stays
+*centered* near −6 but its draw-to-draw wobble doubles: it is estimated
+from the same 40 points fighting twice the scatter, so any single run may
+land near −4 or −8. Signal loudness and effect estimation degrade at
+different rates — $R^2$ measures the first, the slope's stability the
+second.
+:::
+
+### 8.2 · Modify the story {#sec-linear-regression-p2}
+
+Add a second, truly useless predictor to the one-gene screen — a shuffled
+copy of the expression values, so it has the right distribution and no
+relationship to response. Fit both slopes with `fit_many_slopes`
+($\lambda = 0$; two predictors, forty lines, no $p \gg n$ drama). What
+does the fit give the useless predictor, and what happens to training
+$R^2$ anyway?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+```{python}
+rng = np.random.default_rng(241)
+shuffled = x[np.argsort(rng.random(40))]     # same values, dealt to random lines
+centered_real = x - x.mean()                 # the one-at-a-time fitter wants
+centered_fake = shuffled - shuffled.mean()   #   centered predictors
+rows = []
+for real, fake in zip(centered_real, centered_fake):
+    rows.append(np.array([real, fake]))
+X_two = np.array(rows)
+intercept, beta = fit_many_slopes(X_two, y, lam=0)
+print(f"slope on the real gene:    {beta[0]:.2f}")
+print(f"slope on the shuffled one: {beta[1]:.2f}")
+print(f"train R² with both:        {r_squared_of(intercept, beta, X_two, y):.2f}")
+```
+The honest fit gives the impostor exactly zero — with 40 samples and 2
+predictors there is plenty of data to see it does nothing (its true chance
+correlation buys less than the grid's smallest step, so the fit rounds it
+away). The general law still runs the other direction: an unconstrained
+fit's training $R^2$ can never *decrease* when a predictor is added, since
+setting the new slope to zero recovers the old fit exactly — so every
+added predictor bids for a sliver of in-sample credit. One impostor's
+sliver is harmless; @sec-evaluation's leakage world showed what 1,500 of
+them buy. The training score rewards vocabulary; only held-out data
+rewards truth.
+:::
+
+### 8.3 · Hand-calculate {#sec-linear-regression-p3}
+
+Three points: $(1, 2)$, $(2, 4)$, $(3, 3)$. Two candidate lines:
+$y = 1.5 + 1.0x$ and $y = 2.0 + 0.5x$. Compute each line's sum of squared
+misfits by hand and crown the better candidate.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Line A predicts $2.5, 3.5, 4.5$; misfits $-0.5, +0.5, -1.5$; squares sum
+to $0.25 + 0.25 + 2.25 = 2.75$. Line B predicts $2.5, 3.0, 3.5$; misfits
+$-0.5, +1.0, -0.5$; squares sum to $0.25 + 1.0 + 0.25 = 1.50$. Line B
+wins. That comparison — score two worlds, keep the better — is the entire
+fitting procedure; the grid merely does it for thousands of candidates,
+and the squaring is the Normal likelihood keeping its books.
+:::
+
+### 8.4 · Spot the mismatch {#sec-linear-regression-p4}
+
+A poster reports: "Our expression signature (2,400 genes) predicts
+chemotherapy response in our cohort of 35 patients with $R^2 = 0.99$."
+The fit is genuine — the arithmetic checks out. What is wrong, what
+number would you ask for, and what do you expect it to be?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+With 2,400 slopes and 35 patients, a training $R^2$ near 1 is guaranteed
+*whatever the genes do* — the $\lambda = 0$ row of this chapter reached
+1.00 on genes with real effects and would have reached it on shuffled
+ones. The number to ask for is performance on patients the fit never saw
+(held-out, split by patient). Expect something near zero — or below it,
+since unpenalized $p \gg n$ fits generalize *negatively* — unless the
+signature was fit with a penalty tuned by cross-validation, which is the
+first question to ask about the methods. The training score at $p \gg n$
+measures the fit's freedom, not the biology.
+:::
+
+### 8.5 · Read the notation {#sec-linear-regression-p5}
+
+Translate into the search it prescribes — what is scored, what is summed,
+what the loop keeps — and name the belief the second term encodes:
+
+$$
+\text{score}(\beta) = \sum_i \big(y_i - \beta_0 - \beta_1 x_{i1} - \beta_2 x_{i2}\big)^2 + 100\,(\beta_1^2 + \beta_2^2)
+$$
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+For each candidate $(\beta_0, \beta_1, \beta_2)$: predict every sample
+from the two-term line, square each misfit, sum — then add 100 times the
+sum of squared slopes (the intercept goes unpenalized — beliefs about
+slopes are not beliefs about baselines). The loop keeps the lowest total,
+best-so-far. The second term is a prior, priced in log-space: "both
+effects are probably small — hold candidate slopes near zero unless the
+misfit term pays for the distance." At $\lambda = 100$ that belief is
+held firmly; the data can still overrule it, but it must buy the ground.
+:::
