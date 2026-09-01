@@ -3,27 +3,699 @@ id: glms
 week: 9
 act: II
 operation: "nest + condition"
-concepts: []
-prerequisites: []
-notation_introduced: []
-misconceptions: []
-practice_problems: []
+concepts: [honest-discovery-list, level-of-randomness]
+prerequisites: [gamma-poisson-contract, conditional-bar, condition-operation, shrinkage, null-distribution, expected-false-positives, false-discovery, held-out-discipline]
+notation_introduced: [poisson-notation, negative-binomial, log-link, bh-procedure]
+constructs_introduced: []
+misconceptions:
+  - "A significant gene changed a lot."
+  - "The false-discovery guarantee is a property of the procedure alone."
+  - "More replicates make the discovery list more biologically meaningful."
+practice_problems:
+  - id: glm-1
+    kind: predict-the-output
+    objective: >
+      Predict which distribution the negative binomial becomes as the rate
+      stops wandering — before turning the dial.
+    probes: level-of-randomness
+    solution: worked
+  - id: glm-2
+    kind: modify-the-story
+    objective: >
+      Add a batch term to the count simulator and say which downstream
+      quantity it corrupts first.
+    probes: honest-discovery-list
+    solution: worked
+  - id: glm-3
+    kind: hand-calculate
+    objective: >
+      Compute the expected false positives of a raw threshold and the
+      promise of a BH threshold on the same scan, by hand.
+    probes: expected-false-positives
+    solution: worked
+  - id: glm-4
+    kind: spot-the-mismatch
+    objective: >
+      Diagnose a scan whose p-value histogram spikes at zero far beyond
+      what its effects can explain.
+    probes: level-of-randomness
+    solution: worked
+  - id: glm-5
+    kind: read-the-notation
+    objective: >
+      Translate the two-line negative-binomial regression hierarchy into a
+      loop — the same translation as P3.5, now with nothing on trust.
+    probes: gamma-poisson-contract
+    solution: worked
 ---
 
 # Generalized linear models: Poisson and negative binomial regression {#sec-glms}
 
-> **Under construction.**
-
-*The question this chapter answers:* **Are these genes really differentially expressed?**
-
-<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
 ## The problem
+
+Three treated samples, three controls, RNA-seq, 4,000 genes. For each gene
+you have six counts, and the question is the one this entire act has been
+circling: **which genes did the treatment actually change?**
+
+Gene 17's treated counts run higher than its controls. So do its
+neighbor's. In this chapter's simulated world one of them is real and one
+is the ordinary wobble of counted molecules — and you will build the
+machinery that tells them apart at genome scale, ending with the deliverable
+every downstream collaborator actually wants: **a discovery list you can
+defend**, with a stated, checkable bound on how much of it is noise.
+
+Almost nothing here is new. This chapter is where three acts of parts get
+assembled: @sec-nest's hidden layer, @sec-logistic-regression's
+conditioning, @sec-repeat's scan. It is also where a debt is paid.
+
 ## The story
+
+Start with one gene and tell its counts forward.
+
+**Why a count is Poisson.** A sequencing run samples millions of molecules;
+any one gene's transcripts are a tiny fraction of them. Counting rare
+events out of many trials — a binomial with enormous $n$ and tiny $p$ —
+produces a distribution that depends only on the product $np$, the *rate*.
+That limiting count distribution is the **Poisson**, and you have already
+run it: in @sec-nest's practice problem 3.5 you simulated
+`rng.poisson(lam)` on trust, as unmet notation. The trust is now cashed:
+Poisson is what counting-rare-things-out-of-many *is*, and its signature —
+met there, load-bearing here — is that its variance equals its mean.
+
+**Why one level is not enough.** Your three treated samples are not one
+biological state observed three times; they are three mice, or three
+dishes — and the gene's true expression rate wanders between them, for
+@sec-nest's reasons. So the honest story is P3.5's two lines, verbatim:
+each replicate draws its own rate from a Gamma around the gene's average;
+the machine then counts Poisson around that replicate's rate. **A
+Gamma-distributed rate inside a Poisson is the negative binomial** — the
+promise @sec-nest made ("you will have built that machinery here") — and
+it is the beta-binomial's twin for open-ended counts: same architecture,
+hidden layer then counting layer, with $\kappa$ again setting how tightly
+the hidden rates cluster.
+
+**Why a link.** Treatment should move the gene's average rate — a
+parameter becoming a function of a measurement, @sec-logistic-regression's
+conditioning verbatim. A rate must stay positive while a line roams, so
+the line lives on the log scale and exponentiates on the way out:
+$\mu = e^{\beta_0 + \beta_1 \cdot \text{treated}}$. Identity for a mean,
+sigmoid for a probability, exp for a rate — the third and last member of
+the family.
+
+Nest, then condition: the schedule's operations, composed literally.
+
 ## The story, as code
+
+```{python}
+import numpy as np
+
+def one_gene(rate_control, fold, kappa, n_per_group, rng):
+    """Six counts for one gene: each replicate draws its own true rate
+    (the hidden layer), then the machine counts (the Poisson layer)."""
+    counts = []
+    for group in range(2):
+        if group == 0:
+            mu = rate_control
+        else:
+            mu = rate_control * fold          # exp(b0 + b1): fold = e^b1
+        for _ in range(n_per_group):
+            rate = rng.gamma(shape=kappa, scale=mu / kappa)
+            counts.append(rng.poisson(rate))
+    return np.array(counts)
+
+rng = np.random.default_rng(251)
+print("control, control, control, treated, treated, treated:")
+print(one_gene(rate_control=50, fold=2.5, kappa=4, n_per_group=3, rng=rng))
+```
+
+A truly 2.5-fold gene, and its counts run 26–63 in control, 83–175
+treated: overlapping neighborhoods, not separated worlds. Every difficulty
+in this chapter is visible in those six numbers.
+
 ## Playing with the story
+
+Which level of randomness does your data have? There is a diagnostic, and
+it is the single most useful plot in count-land — **variance against
+mean**, one point per gene:
+
+```{python}
+#| fig-cap: "The level-of-randomness diagnostic. Poisson-world genes hug the variance = mean line; genes with a wandering rate flare above it, and the flare grows quadratically."
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(257)
+mean_list, poisson_var, nb_var = [], [], []
+for _ in range(2000):
+    mu = np.exp(rng.normal(3, 1))               # a spread of expression levels
+    pois_counts = rng.poisson(mu, size=50)
+    rates = rng.gamma(shape=4, scale=mu / 4, size=50)
+    nb_counts = rng.poisson(rates)
+    mean_list.append(mu)
+    poisson_var.append(pois_counts.var())
+    nb_var.append(nb_counts.var())
+
+fig, ax = plt.subplots(figsize=(6.4, 3.6))
+ax.loglog(mean_list, poisson_var, ".", color="#2a78d6", ms=3, alpha=0.5,
+          label="one level (Poisson)")
+ax.loglog(mean_list, nb_var, ".", color="#eb6834", ms=3, alpha=0.5,
+          label="rate wanders (negative binomial)")
+grid = np.arange(1, 400, 5)
+ax.loglog(grid, grid, color="#52514e", ls=":", lw=1.5)
+ax.text(150, 100, "variance = mean", color="#52514e")
+ax.set_xlabel("gene's mean count")
+ax.set_ylabel("gene's variance")
+ax.legend(frameon=False)
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+Blue hugs the dotted line — Poisson's variance *is* its mean. Orange lifts
+away, and lifts harder for high-expression genes, because the wandering
+rate adds a term that grows with the square of the mean. Real RNA-seq
+looks orange, essentially always. When you must decide what a tool
+assumed — and after this act, the tools stop telling you — this is the
+plot that asks the data directly.
+
+Now the full scan world: 4,000 genes, three versus three, 400 genes truly
+changed (half up 3-fold, half down to a third), everything else pure
+nesting noise:
+
+```{python}
+def make_scan(n_genes, n_true, kappa, rng):
+    base = np.exp(rng.normal(3, 1, size=n_genes))
+    fold_list = []
+    for j in range(n_genes):
+        if j < n_true / 2:
+            fold_list.append(3.0)
+        elif j < n_true:
+            fold_list.append(0.33)
+        else:
+            fold_list.append(1.0)
+    fold = np.array(fold_list)
+    control_rows, treated_rows = [], []
+    for _ in range(3):
+        rates = rng.gamma(shape=kappa, scale=base / kappa)
+        control_rows.append(rng.poisson(rates))
+        rates = rng.gamma(shape=kappa, scale=(base * fold) / kappa)
+        treated_rows.append(rng.poisson(rates))
+    return np.array(control_rows), np.array(treated_rows), fold
+
+rng = np.random.default_rng(263)
+C, T, fold = make_scan(4000, 400, 4, rng)
+mean_control = C.mean(axis=0)
+mean_treated = T.mean(axis=0)
+observed = np.abs(np.log((mean_treated + 0.5) / (mean_control + 0.5)))
+print("counts table shapes:", C.shape, T.shape)
+print("per-gene statistic: |log fold-change|, e.g.", observed[:3].round(2))
+```
+
+Each gene is summarized by one number — the absolute log fold-change
+between group means, pseudocounted so an empty gene cannot divide by
+zero — and the question for every gene is @sec-repeat's question: *is this
+statistic larger than the null world produces?*
+
 ## Where the numbers come from
+
+To simulate each gene's null world you need its dispersion, and here is
+the wall this chapter exists to climb: **estimating a variance from three
+samples is madness.** Try it per gene:
+
+```{python}
+variance_control = C.var(axis=0) * 3 / 2   # 3 samples understate spread; n/(n−1) corrects
+kappa_per_gene = (mean_control * mean_control) / (variance_control - mean_control + 0.001)
+print("per-gene kappa estimates, first eight genes:")
+print(np.round(kappa_per_gene[:8], 1))
+print("share of genes whose 3 counts show variance BELOW mean:",
+      round((variance_control < mean_control).mean(), 2))
+```
+
+The truth is $\kappa = 4$ for every gene, and the per-gene estimates say
+−64.1, 2.5, 1.4, 8.7… — one is *negative* (three counts happened to
+huddle), and 17% of genes look under-dispersed purely by luck. Three
+numbers cannot measure their own spread.
+
+But 4,000 genes share the same kind of wandering, and that is
+@sec-linear-regression's move: **borrow strength.** Pool the evidence —
+every gene contributes its little, unstable reading to one shared
+estimate:
+
+```{python}
+variance_treated = T.var(axis=0) * 3 / 2
+pooled_kappa = ((mean_control * mean_control).sum() + (mean_treated * mean_treated).sum()) / \
+               ((variance_control - mean_control).sum() + (variance_treated - mean_treated).sum())
+print("pooled kappa, all genes at once:", round(pooled_kappa, 1), "  (the world's truth: 4)")
+```
+
+One shared number, 4.7 against a truth of 4 — from the same data that
+produced −64.1 gene by gene. (The field's standard tools do a subtler
+version — each gene's estimate shrunk *toward* the pool rather than
+replaced by it — but the principle is spent here in full: at three
+replicates, a gene's dispersion is mostly prior.)
+
+Now the scan is @sec-repeat grown up. For every gene at once: simulate the
+null world — both groups at the gene's pooled mean, dispersion from the
+pooled $\kappa$ — many times, and ask how often null noise produces a fold
+change as large as the observed one:
+
+```{python}
+def null_scan_once(mu, kappa, rng):
+    """One null dataset for every gene at once: no gene truly changes."""
+    control_rows, treated_rows = [], []
+    for _ in range(3):
+        control_rows.append(rng.poisson(rng.gamma(shape=kappa, scale=mu / kappa)))
+        treated_rows.append(rng.poisson(rng.gamma(shape=kappa, scale=mu / kappa)))
+    mc = np.array(control_rows).mean(axis=0)
+    mt = np.array(treated_rows).mean(axis=0)
+    return np.abs(np.log((mt + 0.5) / (mc + 0.5)))
+
+pooled_mean = (mean_control + mean_treated) / 2
+rng = np.random.default_rng(269)
+n_null_runs = 1999
+times_exceeded = observed * 0.0            # one running count per gene
+for _ in range(n_null_runs):
+    null_stats = null_scan_once(pooled_mean, pooled_kappa, rng)
+    times_exceeded = times_exceeded + (null_stats >= observed)
+p = (times_exceeded + 1) / (n_null_runs + 1)
+print("smallest possible p at this many null runs:", p.min())
+```
+
+```{python}
+#| fig-cap: "Four thousand p-values: flat where nothing happened, a spike at zero where something did. The flat part is the scan's own honesty check."
+fig, ax = plt.subplots(figsize=(6.6, 3))
+ax.hist(p, bins=20, color="#2a78d6", edgecolor="white")
+ax.axhline(3600 / 20, color="#eb6834", ls=":", lw=1.5)
+ax.text(0.55, 3600 / 20 + 30, "what 3,600 null genes contribute per bin",
+        color="#eb6834")
+ax.set_xlabel("p-value")
+ax.set_ylabel("genes")
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+@sec-repeat's diagnostic, finally on genome-shaped data: flat plus a spike.
+The flat floor is the 3,600 unchanged genes doing exactly what honest null
+p-values do; the spike at zero holds the signal — and some noise. How much
+noise? Threshold at $p < 0.05$ and @sec-repeat's accounting bills you
+$3600 \times 0.05 = 180$ expected false genes before you look:
+
+```{python}
+called = (p < 0.05)
+truly_null = (fold == 1.0)
+print(f"raw p < 0.05: {called.sum()} genes called")
+print(f"   of which truly null: {(called & truly_null).sum()}"
+      f"  ({(called & truly_null).sum() / called.sum():.0%} of the list)")
+```
+
+Four hundred ninety-nine calls and *45% of the list is noise* — worse than
+the 180-gene bill because the estimated null is itself imperfect (more on
+that below). A list that is half noise is not a deliverable. What a
+collaborator needs is a list built to a stated purity, and that is what
+the **Benjamini–Hochberg procedure** delivers: not a fixed p cutoff, but a
+cutoff chosen so that the *expected fraction* of the list that is null —
+the false discovery rate — is at most your target. The procedure is five
+plain lines: sort the p-values; walking up the sorted list, find the last
+rank $i$ where $p_{(i)} \le \alpha \cdot i / m$; call everything up to it.
+
+```{python}
+order = np.argsort(p)
+p_sorted = p[order]
+m = len(p)
+last_passing_rank = 0
+for i in range(m):
+    if p_sorted[i] <= 0.10 * (i + 1) / m:       # alpha = 0.10, rank i+1 of m
+        last_passing_rank = i + 1
+discoveries = order[:last_passing_rank]
+print(f"BH at FDR 0.10: {last_passing_rank} genes called")
+print(f"   of which truly null: {(fold[discoveries] == 1.0).sum()}"
+      f"  ({(fold[discoveries] == 1.0).sum() / last_passing_rank:.0%} of the list)")
+```
+
+One hundred sixty-five genes, 13% noise — a list whose impurity was chosen
+in advance rather than discovered later. Two honest readings of that 13%.
+First, the promise was 10%, and the delivery is 13: **the guarantee is
+only as good as the null it stands on**, and ours stands on an estimated
+$\kappa$ (4.7 for a true 4 — a slightly narrow null lets slightly too much
+noise through). In this world we can measure the gap because we planted
+the truth; in yours, the flat part of the p-value histogram is the check
+you get. Second, compare the two lists as products: raw 0.05 delivered 499
+genes at 45% noise; BH delivered 165 at 13%. Fewer, and defensible — the
+trade this entire act has been teaching.
+
+And what if you had modeled one level of randomness instead of two —
+Poisson nulls, no wandering rate? The same scan, with only $\kappa$
+changed:
+
+```{python}
+rng = np.random.default_rng(271)
+times_exceeded = observed * 0.0
+for _ in range(499):
+    null_stats = null_scan_once(pooled_mean, 100000, rng)   # kappa huge: rate never wanders
+    times_exceeded = times_exceeded + (null_stats >= observed)
+p_poisson = (times_exceeded + 1) / 500
+print(f"Poisson-null scan, p < 0.05: {(p_poisson < 0.05).sum()} genes called")
+print(f"   truly null genes swept in: {((p_poisson < 0.05) & truly_null).sum()} of 3,600")
+```
+
+Eighteen hundred fifty-five "discoveries" — the truth planted 400 — with
+41% of all *unchanged* genes flagged. It is @sec-nest's 95%-band
+catastrophe at genome scale: the Poisson null is narrower than reality, so
+ordinary biological wobble reads as signal, everywhere, confidently.
+Nothing crashes. The histogram of a scan like this spikes so hard it
+should embarrass its own authors — which is practice problem 9.4.
+
+One practical dial remains. Samples are sequenced to different depths — a
+sample with 1.6× the reads sees 1.6× of *every* gene:
+
+```{python}
+rng = np.random.default_rng(277)
+base = np.exp(rng.normal(3, 1, size=4000))
+control_rows, treated_rows = [], []
+for _ in range(3):
+    control_rows.append(rng.poisson(rng.gamma(shape=4, scale=base / 4)))
+    treated_rows.append(rng.poisson(rng.gamma(shape=4, scale=base / 4) * 1.6))
+Cd, Td = np.array(control_rows), np.array(treated_rows)   # same biology, deeper treated
+
+naive_lfc = np.log((Td.mean(axis=0) + 0.5) / (Cd.mean(axis=0) + 0.5))
+corrected_lfc = np.log((Td.mean(axis=0) / 1.6 + 0.5) / (Cd.mean(axis=0) + 0.5))
+print(f"no gene changed. naive mean log-fold: {naive_lfc.mean():.2f}"
+      f"   (log 1.6 = {np.log(1.6):.2f})")
+print(f"depth-corrected mean log-fold:        {corrected_lfc.mean():.2f}")
+```
+
+Ignore depth and every gene in the genome appears 1.6-fold "up" — a
+whole-genome discovery made of nothing but a sequencer setting. Divide
+each sample by its depth — an **offset**, in the field's vocabulary — and
+the artifact vanishes. Depth is the loudest nuisance in count data and the
+easiest to fix, which is exactly why forgetting it is so well represented
+in the literature's corrections pages.
+
 ## The notation
+
+The one-gene story is two lines you have seen before, plus a link:
+
+$$
+\lambda_{i} \sim \mathrm{Gamma}\!\big(\kappa,\ \mu_i/\kappa\big), \qquad
+Y_{i} \mid \lambda_{i} \sim \mathrm{Poisson}(\lambda_{i}), \qquad
+\mu_i = e^{\beta_0 + \beta_1 x_i}
+$$
+
+— P3.5's hierarchy with the rate conditioned. Marginally,
+$Y_i \sim \mathrm{NB}(\mu_i, \kappa)$: the **negative binomial**, mean
+$\mu$, variance $\mu + \mu^2/\kappa$ — the flare in the diagnostic plot,
+written down. The three-link family, complete:
+
+| outcome | distribution | link: $\eta \to$ parameter |
+|---|---|---|
+| continuous | Normal | identity (@sec-linear-regression) |
+| yes/no | Binomial | sigmoid (@sec-logistic-regression) |
+| count | Poisson / NB | exp (this chapter) |
+
+One conditioning story, three unit conversions — the family is called the
+**generalized linear model**, and you have now built every member this
+book needs. BH enters the decoder as a procedure, not a formula: sort,
+walk up while $p_{(i)} \le \alpha i / m$, keep everything below the last
+success.
+
 ## A worked design
+
+> **The problem.** A functional-genomics lab runs a pooled CRISPR screen:
+> a library of 60,000 guide RNAs (about 4 per gene) infects a cell
+> population; cells carrying a guide that knocks out an essential-for-
+> survival gene die off. Guides are counted by sequencing at day 0 and
+> day 14, in duplicate. The lab wants the genes whose knockout changes
+> survival — **a depletion scan** — with a defensible list. Design it.
+
+**Frame.** Each guide's pair of counts is this chapter's object: a count
+whose rate is conditioned on time, with a hidden layer between duplicates
+(infection efficiency, bottlenecks) that guarantees overdispersion. The
+statistic per guide is the day-14/day-0 log-ratio, corrected — before
+anything else — for library depth at each timepoint, since day-14
+libraries are routinely sequenced deeper. The unit of *inference* is the
+gene, not the guide: four guides per gene are four partially independent
+measurements, which is both a gift (internal replication) and a trap
+(guides differ in efficiency for non-biological reasons). I am treating
+duplicates as exchangeable and ignoring guide-position effects within a
+gene; both marked. Note the deliberate distance from
+@sec-logistic-regression's design: that one predicted whether a *single
+edit* succeeds from guide features; this one asks which *genes* matter,
+with guide effects as noise to be averaged over, not signal.
+
+**Decompose.** (1) Depth offsets per sample, first and non-negotiably.
+(2) Per-guide log-ratios; per-gene statistic as the average of its
+guides' ratios. (3) Dispersion by borrowing across all 60,000 guides —
+two duplicates per condition makes three replicates look luxurious, so
+the pooled estimate is not an option but the *only* option. (4) The
+parametric null per gene — no true depletion, rates at the gene's pooled
+mean, the pooled dispersion, guide structure preserved — simulated many
+times; p per gene. (5) The histogram check: flat-plus-spike or bust — a
+sagging or bulging flat part means the null is mis-dispersed, and no list
+ships until it is flat. (6) BH at a rate the lab chooses knowing what
+follow-up costs; a validation screen tolerates 20%, a drug program does
+not. (7) The essential-gene positive control: a few hundred genes are
+known-essential in everything; their recovery rate is the scan's report
+card, printed beside the list.
+
+**Select.** The scan machinery of this chapter, gene-level, with
+simulation-based nulls — chosen over the field's packaged screen tools
+for this lab's stated reason: they want a list they can defend line by
+line, and every line of this pipeline is inspectable. I concede the
+packaged tools' real advantages — per-guide efficiency modeling,
+gene-level aggregation smarter than a mean — and the positive-control
+report card is the arbiter: if the packaged tool recovers essentials
+meaningfully better on our own data, it earns the job.
+
+**Anticipate.** First, bottleneck overdispersion: a harsh infection or a
+passaging bottleneck makes *every* guide's ratio wander far beyond the
+pooled dispersion estimated from calm data — the day-0 duplicate
+disagreement is the tripwire to check before believing anything.
+Second, proliferation confounding: knockouts that merely slow growth
+deplete too; the list is "affects fitness," not "essential," and the
+report must say so or the follow-up lab will discover it expensively.
+Third, multiple guides sharing a gene are correlated through it —
+treating four guides as four independent p-values would double-count
+exactly as @sec-naive-bayes's duplicated k-mers did; aggregation to the
+gene *before* inference is the guard. Fourth, the few-changes assumption:
+in a screen where a quarter of the genome affects fitness, depth
+normalization itself bends (this chapter's final failure), and the
+control set for normalization must be chosen with that in mind.
+
+**What to notice.** Depth first; dispersion borrowed, never per-guide;
+the histogram as a gate, not a decoration; a positive control that grades
+the pipeline on the reader's own data; and a failure list whose first
+three entries are this book's chapters 3, 6, and 5 wearing lab coats.
+
 ## When the model is wrong
+
+Box's clause — **all models are wrong** [@box1976] — lands on the scan's
+quiet assumptions, the ones shared by every tool in the field.
+
+**First, executed: normalization assumes few changes.** Depth correction
+above divided by the *known* sequencing depth. Real pipelines estimate
+depth from the data — total counts, usually — which silently assumes the
+genome mostly did not change. Break that assumption honestly: a world
+where *half* the genes truly double under treatment.
+
+```{python}
+rng = np.random.default_rng(293)
+base = np.exp(rng.normal(3, 1, size=4000))
+fold_list = []
+for j in range(4000):
+    if j < 2000:
+        fold_list.append(2.0)      # half the genome genuinely doubles
+    else:
+        fold_list.append(1.0)      # the other half truly does nothing
+half_fold = np.array(fold_list)
+control_rows, treated_rows = [], []
+for _ in range(3):
+    control_rows.append(rng.poisson(rng.gamma(shape=4, scale=base / 4)))
+    treated_rows.append(rng.poisson(rng.gamma(shape=4, scale=(base * half_fold) / 4)))
+Ch, Th = np.array(control_rows), np.array(treated_rows)
+
+total_ratio = Th.sum() / Ch.sum()
+print(f"treated/control total-count ratio: {total_ratio:.2f}")
+treated_normalized = (Th / total_ratio).mean(axis=0)
+unchanged_lfc = np.log((treated_normalized[2000:] + 0.5) / (Ch.mean(axis=0)[2000:] + 0.5))
+print(f"apparent log-fold of the UNCHANGED genes after total-count"
+      f" normalization: {unchanged_lfc.mean():.2f}")
+```
+
+The treated libraries carry 1.5× the total counts — because half the
+genome really did rise — and total-count normalization, built to remove
+depth, removes the biology instead: every unchanged gene now reads as
+*down* by log 0.41. A scan on this normalized data would confidently
+discover two thousand down-regulated genes that never moved. The
+assumption ("most genes don't change") is fine for a subtle treatment and
+catastrophically wrong for a global one — differentiation, stress,
+proliferation arrest — and nothing in the pipeline warns you, because the
+assumption lives in the normalizer, upstream of every diagnostic. The
+guard is biological: spike-in controls, or a curated set of
+believed-stable genes, giving the normalizer something that is *known*
+not to change.
+
+**Second: the point null, and what significance is not.** Every p-value
+in this chapter tests "fold change exactly 1.0" — and no gene in a living
+cell has a fold change of exactly anything. Watch what replication does
+to a biologically trivial 15% change:
+
+```{python}
+def one_gene_pvalue(rate, fold, kappa, n_per_group, n_null_runs, rng):
+    counts = one_gene(rate, fold, kappa, n_per_group, rng)
+    mean_c = counts[:n_per_group].mean()
+    mean_t = counts[n_per_group:].mean()
+    obs = np.abs(np.log((mean_t + 0.5) / (mean_c + 0.5)))
+    pooled = (mean_c + mean_t) / 2
+    exceeded = 0
+    for _ in range(n_null_runs):
+        null_c = rng.poisson(rng.gamma(shape=kappa, scale=pooled / kappa, size=n_per_group))
+        null_t = rng.poisson(rng.gamma(shape=kappa, scale=pooled / kappa, size=n_per_group))
+        if np.abs(np.log((null_t.mean() + 0.5) / (null_c.mean() + 0.5))) >= obs:
+            exceeded += 1
+    return (exceeded + 1) / (n_null_runs + 1)
+
+rng = np.random.default_rng(331)
+for n in (3, 200):
+    print(f"true fold 1.15, {n} replicates per group:"
+          f" p = {one_gene_pvalue(200, 1.15, 4, n, 199, rng)}")
+```
+
+At three replicates the 15% change is invisible ($p = 0.35$); at two
+hundred, it is a firm discovery ($p = 0.01$). Nothing about the biology
+grew — only the microscope did. With enough replicates, *the entire
+genome* becomes statistically significant, because every fold change is
+some tiny amount different from 1.0. Statistical significance answers
+"is it exactly null?"; biology asks "is it big enough to matter?" — and
+the second question needs an effect-size threshold chosen by a biologist,
+reported alongside the p-value, forever. A discovery list without a
+fold-change column is a list of sample sizes.
+
+**Third: the batch, again.** If the three treated samples were prepped on
+Tuesday and the controls on Thursday, everything in this chapter runs
+perfectly and measures the difference between Tuesday and Thursday. Third
+act appearance (@sec-linear-regression's confounding, @sec-evaluation's
+shift), genome-scale edition — and the repair is still upstream of the
+math: randomize samples across batches, or measure the batch and put it
+in the model as a second conditioned term. The scan machinery will happily
+condition on batch; it just cannot invent the batch column you never
+recorded.
+
 ## Practice problems
--->
+
+Ungraded, solutions worked. Do them before looking.
+
+### 9.1 · Predict the output {#sec-glms-p1}
+
+In `one_gene`, send `kappa` from 4 to 4,000,000 with everything else
+fixed. Which distribution do the counts become, why, and which single
+line of the mean–variance figure would they now land on? Predict, then
+run a few thousand draws and check the mean and variance.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+The Gamma layer's spread shrinks with $\kappa$; at $\kappa \to \infty$
+every replicate draws essentially the same rate $\mu$, the hidden layer
+stops wandering, and the counts are plain Poisson — variance equal to
+mean, the blue diagonal. The negative binomial contains the Poisson as
+its calm limit, exactly as the beta-binomial contained the binomial in
+@sec-nest. One dial, two named distributions; the name changes before
+the code does.
+:::
+
+### 9.2 · Modify the story {#sec-glms-p2}
+
+Add a batch effect to `make_scan`: the third sample of *each* group was
+prepped separately and carries 1.8× counts for every gene. Which
+downstream quantity is corrupted first — the fold-change statistics, or
+the dispersion estimate — and what does that corruption do to the scan?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+```{python}
+rng = np.random.default_rng(311)
+base = np.exp(rng.normal(3, 1, size=2000))
+rows = []
+for sample in range(3):
+    counts = rng.poisson(rng.gamma(shape=4, scale=base / 4))
+    if sample == 2:
+        counts = rng.poisson(rng.gamma(shape=4, scale=base / 4) * 1.8)
+    rows.append(counts)
+Cb = np.array(rows)
+mean_b = Cb.mean(axis=0)
+var_b = Cb.var(axis=0) * 3 / 2
+kappa_b = (mean_b * mean_b).sum() / (var_b - mean_b).sum()
+print("pooled kappa with a batch sample:", round(kappa_b, 1), " (truth 4)")
+```
+The fold-changes survive — the 1.8× sample sits in *both* groups, so its
+inflation largely cancels in the group means. The **dispersion** is hit
+first: every gene's three counts now include one systematically inflated
+value, which reads as extra wandering, and the pooled $\kappa$ drops
+(here to 2.6 — the world looks noisier than it is). A too-wide null makes
+the whole scan conservative: real genes missed, across the board. Batch
+effects do not need to bias your comparison to cost you discoveries;
+inflating your null is damage enough.
+:::
+
+### 9.3 · Hand-calculate {#sec-glms-p3}
+
+A scan of 10,000 genes, of which (unknown to the analyst) 9,500 are null.
+By hand: (a) the expected number of false genes on a raw $p < 0.05$ list;
+(b) if BH at $\alpha = 0.10$ returns a 300-gene list, the expected number
+of false genes on it; (c) the raw threshold's *false fraction* if the
+true genes contribute 320 calls.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+(a) $9{,}500 \times 0.05 = 475$ expected false calls — @sec-repeat's
+bill, unchanged by anything in this chapter. (b) BH controls the *list's*
+false fraction: $300 \times 0.10 = 30$ expected false genes. (c) The raw
+list holds $320 + 475 = 795$ genes, of which 475 are noise: 60% false.
+Same data, same statistics — the raw threshold promises a per-test error
+rate and delivers a mostly-noise list; BH promises a list purity and
+sizes the cutoff to deliver it. The quantity you control should be the
+quantity you care about.
+:::
+
+### 9.4 · Spot the mismatch {#sec-glms-p4}
+
+A collaborator's scan of 12,000 genes (3 vs 3, standard RNA-seq) reports
+7,400 genes significant at BH 0.05, and their p-value histogram is one
+towering spike at zero with almost no flat part anywhere. They are
+thrilled. The pipeline used a Poisson model "because the counts are
+counts." What happened, and which figure of this chapter is their
+histogram failing?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+The mean–variance diagnostic. Real replicates carry a wandering rate;
+their variance flares above the mean, and a Poisson null — variance
+*equal* to mean — is far too narrow. Every gene's ordinary biological
+wobble then reads as extreme, p-values collapse to zero genome-wide, and
+BH, fed dishonest p-values, faithfully passes the dishonesty through
+(garbage in, guaranteed garbage out — the guarantee is conditional on
+the null being right). The tell is exactly what they celebrated: a scan
+where 62% of the genome responds to a treatment is a scan accusing
+itself. The flat part of the histogram is not dead space; it is the
+null model's alibi, and theirs has none.
+:::
+
+### 9.5 · Read the notation {#sec-glms-p5}
+
+P3.5 gave you this hierarchy once, as unmet notation. Translate it again —
+now with every symbol earned — into a loop, and add one sentence saying
+what $x_i$ does that P3.5's version could not:
+
+$$
+\lambda_i \sim \mathrm{Gamma}\!\big(\kappa,\ e^{\beta_0 + \beta_1 x_i}/\kappa\big),
+\qquad Y_i \mid \lambda_i \sim \mathrm{Poisson}(\lambda_i)
+$$
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+```{python}
+rng = np.random.default_rng(313)
+for x in (0, 0, 1, 1):                          # two controls, two treated
+    mu = np.exp(2.0 + 1.1 * x)
+    lam = rng.gamma(shape=4, scale=mu / 4)      # this sample's own true rate
+    print(f"x = {x}:  count = {rng.poisson(lam)}")
+```
+The loop: compute the conditioned mean through the exp link, draw this
+sample's true rate around it, count. The sentence: $x_i$ makes the
+hidden layer's *center* a function of what you measured — P3.5's world
+gave every sample the same average rate; this one moves the average with
+treatment, which is the entire difference between simulating noise and
+modeling an experiment. Nest gave the story its honesty; condition gave
+it its question.
+:::
