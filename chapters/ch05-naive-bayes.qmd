@@ -3,27 +3,661 @@ id: naive-bayes
 week: 5
 act: II
 operation: "mix + repeat"
-concepts: []
-prerequisites: []
-notation_introduced: []
-misconceptions: []
-practice_problems: []
+concepts: [trained-classifier, log-space, overconfident-posteriors, soft-assignment, generative-baseline]
+prerequisites: [prior-likelihood-posterior, pseudocounts, mixing-proportion, false-discovery, structural-checks, box-register]
+notation_introduced: [product-capital-pi, log-sum-form, naive-assumption]
+constructs_introduced: [len-call, np-log, and-or, dict-lookup]
+misconceptions:
+  - "A posterior is a fancier p-value."
+  - "A posterior of 0.99 means the classifier is right 99% of the time on calls like this one."
+  - "Underflow is a rare numerical edge case, not a modeling concern."
+practice_problems:
+  - id: nb-1
+    kind: predict-the-output
+    objective: >
+      Predict which direction a posterior moves when one feature's evidence is
+      accidentally counted twice — before running it.
+    probes: overconfident-posteriors
+    solution: worked
+  - id: nb-2
+    kind: modify-the-story
+    objective: >
+      Extend the classifier to three classes and identify the one line that
+      did not have to change.
+    probes: trained-classifier
+    solution: worked
+  - id: nb-3
+    kind: hand-calculate
+    objective: >
+      Run the full naive Bayes computation by hand on two features and watch
+      the product form reduce to four multiplications.
+    probes: generative-baseline
+    solution: worked
+  - id: nb-4
+    kind: spot-the-mismatch
+    objective: >
+      Diagnose code whose posteriors print 0.0 for every class on long
+      feature vectors, and say why the bug is invisible on short ones.
+    probes: log-space
+    solution: worked
+  - id: nb-5
+    kind: read-the-notation
+    objective: >
+      Translate the naive Bayes product into its log form and say which
+      decisions survive the translation unchanged.
+    probes: log-space
+    solution: worked
 ---
 
 # Naive Bayes: classification as a generative story {#sec-naive-bayes}
 
-> **Under construction.**
-
-*The question this chapter answers:* **Which reads are rRNA, and how confident can you be about any single call?**
-
-<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
 ## The problem
+
+Your library prep kit claims to deplete ribosomal RNA. It does not entirely —
+they never do — and 100,000 reads have just come back from the sequencer. Some
+fraction of them are rRNA that survived depletion, and you would like those
+reads out of the way before any downstream analysis counts them as signal.
+
+You have training data: reads of known origin, labeled rRNA or not. For each
+read, an upstream tool reports which of twenty short subsequences — **k-mers**,
+in the field's vocabulary — appear in it. rRNA has its own sequence habits, so
+its reads carry a recognizably different k-mer profile. Twenty present-or-absent
+answers per read: that is what you get to work with.
+
+The question is @sec-mix's question at industrial scale: **for each of 100,000
+reads, which process produced it — and is any single call trustworthy enough
+to *delete a read* over?** Deleting is not a soft decision. This chapter is
+about what happens to last chapter's clean machinery when the features
+multiply, and about the one assumption — adopted with eyes open — that keeps
+it computable.
+
 ## The story
+
+For one read:
+
+1. **Nature draws the class.** With probability $\pi$ the read is rRNA;
+   otherwise it is not. The coin from @sec-mix.
+2. **The class writes the features.** Given the class, each of the twenty
+   k-mers is present or absent independently, with a per-class probability —
+   twenty little coins, each one a Bernoulli you have owned since
+   @sec-simulating-a-process.
+
+Stop at the word *independently*, because it is the chapter's whole
+controversy. Real k-mers overlap on the read; a read long enough to contain
+one k-mer is likelier to contain its neighbors; presence is correlated in a
+dozen ways the story just waved off. **The independence is false, and we are
+choosing it anyway** — in the tradition of @sec-nest's Box register, a
+simplification adopted on purpose, with the bill to be totaled honestly in
+the last section. The assumption even has a name in the field: this model is
+called **naive** Bayes, and the adjective is a specification, not an insult —
+it names exactly which falsehood was chosen.
+
 ## The story, as code
+
+The world's true settings are two tables — one presence probability per k-mer
+per class — and the mixing proportion. A **dictionary** stores the two tables
+under their class names: `p_kmer["rRNA"]` looks up the value filed under the
+key `"rRNA"`, the way `draws[3]` looks up position 3 of a list, with a name
+instead of a number.
+
+```{python}
+import numpy as np
+
+rng = np.random.default_rng(61)
+p_kmer = {"rRNA":  rng.uniform(0.15, 0.85, size=20),
+          "other": rng.uniform(0.15, 0.85, size=20)}
+
+def one_read(pi_rrna, p_kmer, rng):
+    """One read: draw its class, then each k-mer's presence given the class."""
+    if rng.random() < pi_rrna:
+        label = "rRNA"
+    else:
+        label = "other"
+    present = rng.random(20) < p_kmer[label]   # 20 draws at once, one per k-mer
+    return label, present
+
+rng = np.random.default_rng(67)
+label_list, reads = [], []
+for _ in range(100000):
+    label, present = one_read(0.15, p_kmer, rng)
+    label_list.append(label)
+    reads.append(present)
+labels = np.array(label_list)
+print("share of reads that are rRNA:", (labels == "rRNA").mean())
+```
+
+Two lines of story, a hundred thousand labeled reads, and — the standing
+luxury — every label true by construction, because we set the truth. The
+depletion left 15% rRNA in this world, and the corpus says 0.150 back.
+
 ## Playing with the story
+
+Here is one fresh read from the same world — think of it as the first read of
+your real run:
+
+```{python}
+rng = np.random.default_rng(126)
+her_label, her_read = one_read(0.15, p_kmer, rng)
+print("the read's k-mer profile:", her_read.astype(int))
+```
+
+Classify it the way @sec-mix taught you: filter the corpus to the simulated
+reads that look like this one, and count who they came from.
+
+```{python}
+n_matching = 0
+for read in reads:
+    same = (read == her_read)      # a mask: which of the 20 answers agree
+    if same.sum() == 20:           # all twenty — an exact match
+        n_matching += 1
+print("exact matches among 100,000 simulated reads:", n_matching)
+```
+
+**Zero.** Not zero because the read is strange — it is a perfectly ordinary
+read — but because twenty yes/no features define about a million distinct
+profiles, and 100,000 reads cannot populate a million corners. The filtering
+move did not get worse at scale; it *died*. Last chapter, one feature took
+values 0–40 and thousands of simulated reads matched. Add features and the
+matches thin exponentially; by twenty, the corner of the world that looks
+exactly like your read is empty.
+
+This is where the independence assumption earns its keep. If the twenty
+features are independent given the class, then the probability of the whole
+profile is **the product of one probability per feature** — present ones
+contribute $p_k$, absent ones $1 - p_k$:
+
+```{python}
+def likelihood(present, probs):
+    """P(profile | class) under independence: one factor per k-mer."""
+    like = 1.0
+    for k in range(len(probs)):
+        if present[k]:
+            like = like * probs[k]
+        else:
+            like = like * (1 - probs[k])
+    return like
+
+like_rrna = likelihood(her_read, p_kmer["rRNA"])
+like_other = likelihood(her_read, p_kmer["other"])
+posterior = like_rrna * 0.15 / (like_rrna * 0.15 + like_other * 0.85)
+print(f"P(profile | rRNA)  = {like_rrna:.2e}")
+print(f"P(profile | other) = {like_other:.2e}")
+print(f"P(rRNA | profile)  = {posterior:.3f}")
+```
+
+No matching reads were needed, because independence lets you *compute* the
+corner's population instead of visiting it. Each per-feature probability is
+estimable from data the filter could never use — every read informs feature
+$k$'s table, not just exact matches. The posterior is @sec-mix's arithmetic,
+unchanged: likelihood times prior, normalized. This read is rRNA with
+probability 0.92 — and it truly is one (`her_label` says so), though 0.92
+also says: about one read in twelve that looks like this is not.
+
+`len(probs)` above is new but hardly needs introducing: the number of
+elements in a sequence, so the same function serves twenty features or two
+thousand.
+
+Two thousand is not hypothetical — a real k-mer vocabulary runs to thousands —
+so scale the product up and watch it break:
+
+```{python}
+rng = np.random.default_rng(79)
+big_rrna  = rng.uniform(0.15, 0.85, size=2000)
+big_other = rng.uniform(0.15, 0.85, size=2000)
+big_read = rng.random(2000) < big_rrna     # a genuinely rRNA read
+print("P(profile | rRNA)  =", likelihood(big_read, big_rrna))
+print("P(profile | other) =", likelihood(big_read, big_other))
+```
+
+Both probabilities print **0.0** — not small, zero. Two thousand factors,
+each below 1, multiply down past the smallest number the computer can hold,
+and the arithmetic silently gives up. This failure is called **underflow**,
+and it is not an edge case: it is the *guaranteed* behavior of long products
+of probabilities. Every real classifier of this kind hits it.
+
+The rescue is a change of scale. Logarithms turn products into sums —
+$\log(ab) = \log a + \log b$ — and sums of two thousand moderate negatives
+sit comfortably around $-1{,}400$ where the product's $10^{-600}$ could not
+be held at all. `np.log` is the natural log, and one property does all the
+work: **it keeps order**. If one likelihood is bigger, its log is bigger, so
+whichever class won the product wins the sum.
+
+```{python}
+def log_likelihood(present, probs):
+    """log P(profile | class): one added term per k-mer."""
+    total = 0.0
+    for k in range(len(probs)):
+        if present[k]:
+            total += np.log(probs[k])
+        else:
+            total += np.log(1 - probs[k])
+    return total
+
+print("log-scale score, rRNA: ", round(log_likelihood(big_read, big_rrna), 1))
+print("log-scale score, other:", round(log_likelihood(big_read, big_other), 1))
+```
+
+$-1206.8$ against $-1612.5$: the rRNA story explains this read
+overwhelmingly better, a verdict the product form printed as 0.0 versus 0.0.
+From here on, serious classification arithmetic lives on the log scale and
+visits probabilities only when a human needs to read one.
+
 ## Where the numbers come from
+
+The world's tables were given. Real ones are trained — and training is
+@sec-mix's counting, done twenty times per class, with the pseudocount
+guarding every cell:
+
+```{python}
+def train_presence(reads, labels, class_name):
+    """Per-k-mer presence fraction among one class's reads, pseudocounted."""
+    n_class = 0
+    present_count = []
+    for _ in range(20):
+        present_count.append(0)
+    for read, label in zip(reads, labels):
+        if label == class_name:
+            n_class += 1
+            for k in range(20):
+                if read[k]:
+                    present_count[k] += 1
+    probs = []
+    for k in range(20):
+        probs.append((present_count[k] + 1) / (n_class + 2))
+    return np.array(probs), n_class
+
+trained_rrna, n_rrna = train_presence(reads, labels, "rRNA")
+trained_other, n_other = train_presence(reads, labels, "other")
+pi_hat = n_rrna / len(reads)
+print("trained table, first four (rRNA): ", np.round(trained_rrna[:4], 2))
+print("true settings, first four (rRNA): ", np.round(p_kmer["rRNA"][:4], 2))
+print("estimated mixing proportion:", pi_hat)
+```
+
+The trained tables recover the world's settings to two decimals, because
+fifteen thousand labeled rRNA reads is a lot of counting. Now the part that
+matters: **grade the classifier on fresh reads it has never seen, in a world
+whose truth we own.**
+
+```{python}
+rng = np.random.default_rng(73)
+correct = 0
+false_discards = 0
+n_discarded = 0
+expected_false = 0.0
+for _ in range(10000):
+    truth, read = one_read(0.15, p_kmer, rng)
+    score_r = likelihood(read, trained_rrna) * pi_hat
+    score_o = likelihood(read, trained_other) * (1 - pi_hat)
+    posterior = score_r / (score_r + score_o)
+    if posterior >= 0.5:
+        call = "rRNA"
+    else:
+        call = "other"
+    if call == truth:
+        correct += 1
+    if posterior >= 0.9:                       # confident enough to discard
+        n_discarded += 1
+        expected_false += 1 - posterior        # each call's own doubt
+        if call == "rRNA" and truth == "other":
+            false_discards += 1
+print(f"accuracy on 10,000 fresh reads: {correct/10000:.3f}")
+print(f"discarded at posterior ≥ 0.9: {n_discarded}")
+print(f"  expected false discards: {expected_false:.0f}")
+print(f"  actual false discards:   {false_discards}")
+```
+
+Two results, one familiar and one quietly important. The accuracy — 94% — is
+the headline. The bookkeeping below it is @sec-repeat's expected-false-positives
+accounting wearing new clothes: every discarded read carries its own doubt,
+$1 - \text{posterior}$, and the sum of those doubts is the bill — the number
+of good reads you should expect to have thrown away. The model predicted 23;
+the truth, which we own, says 24. **When the model matches the world, its
+posteriors are honest bookkeeping**, and a threshold on the posterior buys
+reads at a knowable cost, exactly as a p-value threshold bought discoveries
+at a knowable false-positive bill. Hold that sentence; the last section
+breaks it.
+
+(Two sentences of fence, because the analogy invites a standard confusion: a
+posterior is $P(\text{class} \mid \text{data})$ — the probability of the
+answer, given what you saw. A p-value is $P(\text{data this extreme} \mid
+\text{null})$ — the probability of what you saw, given one particular answer.
+The accounting rhymes; the quantities do not.)
+
+One more honest sentence before moving on. We graded on fresh reads *because
+we could make fresh reads* — truth as an input, @sec-simulating-a-process's
+oldest trick. On real data nobody hands you 10,000 labeled fresh reads to
+grade against. What to do then is not a footnote; it is the next chapter's
+entire subject.
+
 ## The notation
+
+The product form, written down. For features $x_1, \dots, x_K$ and a class
+$c$:
+
+$$
+P(c \mid x_1, \dots, x_K) \;\propto\; P(c)\;\prod_{k=1}^{K} P(x_k \mid c)
+$$
+
+The only new symbol is $\Pi$ — capital pi, "multiply these together," the
+product's sibling of the summation sign — and it is precisely the `for` loop
+in `likelihood`: one factor per feature. The independence assumption *is*
+this line: without it, $P(x_1, \dots, x_K \mid c)$ refuses to factor, and no
+loop can compute it.
+
+Taking logs turns $\Pi$ into $\Sigma$:
+
+$$
+\log P(c \mid x_1, \dots, x_K) \;=\; \log P(c) + \sum_{k=1}^{K} \log P(x_k \mid c) \;+\; \text{const}
+$$
+
+The constant is the normalizer, identical for every class, which is why it
+can be ignored whenever the question is only *which class wins*: adding the
+same number to every score changes no ranking. That is the whole log-space
+contract — **sums for deciding, probabilities for reporting** — and it is
+the scale @sec-logistic-regression will live on from its first page.
+
 ## A worked design
+
+> **The problem.** A hospital lab runs a respiratory PCR panel: twenty
+> pathogen-specific targets, each reported positive or negative, on every
+> sample from patients with respiratory symptoms. Co-infections happen;
+> assay cross-reactivity happens (some targets light up weakly for related
+> viruses); and the lab wants more than the raw panel printout — they want,
+> per sample, a ranked list: *which infection best explains this pattern of
+> positives, and with what confidence?* Design it.
+
+**Frame.** A sample's panel result is a generative story: the patient has
+some infection (or none — absence is a class, not a gap), and the infection
+writes the twenty positives and negatives, each target with its own hit
+probability given the true pathogen — including the off-target ones, which
+is what cross-reactivity *is* in this framing: target $k$ having a nonzero
+probability under pathogen $j \neq k$. That is this chapter's model
+verbatim, and the naive assumption — targets independent given the pathogen
+— is exactly as false here as overlapping k-mers were: cross-reacting
+targets fire together. I am adopting it anyway, and the design's job is to
+measure what that costs rather than hope it is small. Priors are seasonal
+and local; a fixed prior is wrong in a way that matters (@sec-mix's
+lesson), so the prior is a monthly input, not a constant.
+
+**Decompose.** (1) Per-pathogen hit tables trained from resolved cases —
+samples with a settled final diagnosis — with pseudocounts everywhere,
+because a cross-reaction unseen in a finite training set is rare, not
+impossible. (2) The log-space scorer over all classes, "none" included.
+(3) The prior, estimated monthly from the lab's own confirmed-case counts.
+(4) The calibration audit, which is where the naive assumption pays or
+doesn't: on held-back resolved cases, collect every call made at reported
+confidence 0.9 and count how many were right. If 0.9 means 78%, the number
+the clinicians see must be repaired or removed. (5) The co-infection
+question, deferred honestly: this model has one true class by construction,
+so a co-infection will be scored as its dominant member — stated as a known
+limit, not discovered in the ward.
+
+**Select.** Naive Bayes over the panel, none-class included, monthly priors
+— because the lab's training data is a few thousand resolved cases, the
+model's per-class parameter count is tiny (twenty numbers), and every
+number in it is inspectable by a microbiologist, which this setting values
+over raw accuracy. The rejected alternative is a black-box classifier over
+the same twenty bits: with features this few and this binary, its ceiling
+is close to naive Bayes's, and it surrenders the auditability that makes a
+clinical lab trust a tool. I concede it wins if interactions among targets
+carry real signal — which is exactly what the calibration audit would show,
+so the audit is also the decision procedure for replacing the model.
+
+**Anticipate.** First, the calibration failure this chapter demonstrates:
+cross-reactive targets are correlated evidence, so confident calls will be
+*over*-confident, and the audit must run before any probability reaches a
+chart. Second, prior drift: an outbreak rewrites $P(c)$ in a week;
+monthly updates set the repair cadence, and a surveillance-feed override is
+the upgrade path. Third, the resolved-case training set is biased toward
+severe presentations — mild infections resolve without a settled diagnosis
+— so the tables are trained on a nonrandom slice of the deployment world.
+Fourth, "none of the above": a novel pathogen matches no table and will be
+confidently misfiled as its nearest known relative; a minimum-log-likelihood
+tripwire that routes weird panels to a human is cheap and worth it.
+
+**What to notice.** The design treats the model's known falsehood as a
+measurement problem (the audit) rather than a secret; the prior is data,
+not decoration; and every anticipated failure names its detection
+mechanism. Confidence that cannot be audited is not reported.
+
 ## When the model is wrong
+
+The assumption was declared at birth; now the bill. Box's sentence —
+**all models are wrong** [@box1976] — has a sharper edition here: this model
+is wrong *in a known direction*, and the damage lands somewhere most
+tutorials never look.
+
+**First, the executed failure: correlated evidence makes posteriors
+overconfident — while accuracy barely blinks.** Build a world where the
+correlation is total: ten real k-mers, but the pipeline reports each one
+twice, so features 10–19 are copies of features 0–9. Twenty columns, ten
+facts. Train the naive model on that world — it assumes twenty independent
+features, and nothing in the data will warn it — then grade both the calls
+and the *confidence*:
+
+```{python}
+def one_read_doubled(pi_rrna, p_kmer, rng):
+    """Ten true k-mers per read, each reported twice."""
+    if rng.random() < pi_rrna:
+        label = "rRNA"
+    else:
+        label = "other"
+    coins = rng.random(10) < p_kmer[label][:10]
+    present = []
+    for c in coins:
+        present.append(c)
+    for c in coins:
+        present.append(c)         # the same ten answers, filed again
+    return label, np.array(present)
+
+rng = np.random.default_rng(83)
+label_list, dreads = [], []
+for _ in range(100000):
+    label, present = one_read_doubled(0.15, p_kmer, rng)
+    label_list.append(label)
+    dreads.append(present)
+dlabels = np.array(label_list)
+```
+
+```{python}
+d_rrna, dn_r = train_presence(dreads, dlabels, "rRNA")
+d_other, dn_o = train_presence(dreads, dlabels, "other")
+d_pi = dn_r / len(dreads)
+
+rng = np.random.default_rng(97)
+correct = 0
+n_conf, right_conf, claimed = 0, 0, 0.0
+for _ in range(10000):
+    truth, read = one_read_doubled(0.15, p_kmer, rng)
+    score_r = likelihood(read, d_rrna) * d_pi
+    score_o = likelihood(read, d_other) * (1 - d_pi)
+    posterior = score_r / (score_r + score_o)
+    if posterior >= 0.5:
+        call = "rRNA"
+    else:
+        call = "other"
+    if call == truth:
+        correct += 1
+    if posterior >= 0.9:
+        n_conf += 1
+        claimed += posterior
+        if truth == "rRNA":
+            right_conf += 1
+print(f"accuracy: {correct/10000:.3f}")
+print(f"calls at posterior ≥ 0.9: {n_conf}")
+print(f"  average claimed confidence: {claimed/n_conf:.3f}")
+print(f"  actually correct:           {right_conf/n_conf:.3f}")
+```
+
+Read the two halves separately. Accuracy: 86% — respectable, and close to
+what an honest ten-feature classifier earns on the same world, because
+doubled evidence adds no information and the *ranking* of scores barely
+moves. Confidence: the model makes 659 calls claiming an average of 97%
+certainty and delivers 74%. Every duplicated feature multiplied its factor
+in twice — squaring its evidence — so every score marched toward the
+extremes. In the honest world of the previous section, the expected-false
+bookkeeping was off by one read in six hundred; here the same bookkeeping
+promises 21 false discards and commits 172.
+
+**The rankings survive; the probabilities become decoration.** That is the
+precise, repeatable signature of violated independence, and it is why the
+next chapter has a section called calibration: a method for catching a model
+whose answers are good and whose confidence is not. You now know the disease
+it detects.
+
+**Second, the prior travels with the classifier, and preps drift.** Train on
+a normal run and deploy on a batch whose depletion step failed — true rRNA
+share 60%, not 15%:
+
+```{python}
+rng = np.random.default_rng(89)
+kept, kept_rrna = 0, 0
+for _ in range(10000):
+    truth, read = one_read(0.60, p_kmer, rng)    # the failed-depletion batch
+    score_r = likelihood(read, trained_rrna) * pi_hat
+    score_o = likelihood(read, trained_other) * (1 - pi_hat)
+    posterior = score_r / (score_r + score_o)
+    if posterior < 0.5:                          # kept for analysis
+        kept += 1
+        if truth == "rRNA":
+            kept_rrna += 1
+print(f"reads kept: {kept}, of which secretly rRNA: {kept_rrna/kept:.0%}")
+```
+
+On the run it was trained for, the kept pile is 4.7% rRNA. On the failed
+batch, thirty percent — and every downstream analysis inherits it. This is
+@sec-mix's deployment failure recurring one chapter later, which upgrades it
+from an incident to a pattern: **the prior is a property of the batch, not
+of the classifier**, and any pipeline that hard-codes it has decided,
+silently, that all batches are alike.
+
+**Third, pseudocounts guard features, not classes.** Every cell of every
+table got its imaginary observation, so no *k-mer pattern* can veto a class.
+But a class absent from training — a contaminating organism nobody labeled,
+say — has no table at all, and no pseudocount can conjure one: the model
+will distribute such reads among the classes it knows, confidently. The
+scan of the model's blind spot has to happen at design time, by asking what
+categories the training labels never contained; nothing in the arithmetic
+will ask it for you.
+
 ## Practice problems
--->
+
+Ungraded, solutions worked. Do them before looking.
+
+### 5.1 · Predict the output {#sec-naive-bayes-p1}
+
+The fresh read of this chapter scored posterior 0.92 for rRNA, and its k-mer
+0 is *absent*. K-mer 0's trained presence probability is about 0.41 under
+rRNA and 0.81 under other. A pipeline bug appends feature 0 to the profile a
+second time. Before computing: does the posterior for rRNA go up or down,
+and why?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Up. An *absent* k-mer contributes $1 - p$: 0.59 for rRNA against 0.19 for
+other — absence of this k-mer is evidence *for* rRNA, roughly 3-to-1.
+Counting it twice squares that factor's contribution, pushing the posterior
+from 0.92 to about 0.97. The direction depends only on which class the
+feature favors; duplication always amplifies whatever the feature already
+said. That is the failure section's demo in miniature — and note the call
+never changed, only the confidence.
+:::
+
+### 5.2 · Modify the story {#sec-naive-bayes-p2}
+
+Add a third class: reads from a spike-in control, with its own table
+`p_kmer["spike"]` and 5% of the mix. Modify `one_read` and the
+classification arithmetic. Which line of `likelihood` had to change?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+```{python}
+rng = np.random.default_rng(101)
+p3 = {"rRNA": p_kmer["rRNA"], "other": p_kmer["other"],
+      "spike": rng.uniform(0.15, 0.85, size=20)}
+
+def one_read_three(p3, rng):
+    roll = rng.random()
+    if roll < 0.15:
+        label = "rRNA"
+    elif roll < 0.95:
+        label = "other"
+    else:
+        label = "spike"
+    present = rng.random(20) < p3[label]
+    return label, present
+
+rng = np.random.default_rng(103)
+truth, read = one_read_three(p3, rng)
+scores = {}
+for name, prior in [("rRNA", 0.15), ("other", 0.80), ("spike", 0.05)]:
+    scores[name] = likelihood(read, p3[name]) * prior
+total = scores["rRNA"] + scores["other"] + scores["spike"]
+for name in ("rRNA", "other", "spike"):
+    print(f"P({name} | read) = {scores[name]/total:.3f}   (truth: {truth})")
+```
+No line of `likelihood` changed — that is the answer. The per-class
+machinery is one likelihood times one prior, however many classes exist;
+only the normalization gathers them. A generative classifier scales in
+classes by *adding rows*, not by retraining what it already knows.
+:::
+
+### 5.3 · Hand-calculate {#sec-naive-bayes-p3}
+
+Two features, two classes, equal priors. Under class R, feature 1 is present
+with probability 0.9 and feature 2 with probability 0.2; under class O, 0.3
+and 0.6. A sample arrives: feature 1 present, feature 2 absent. Compute
+$P(R \mid \text{sample})$ by hand.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+$P(\text{sample} \mid R) = 0.9 \times 0.8 = 0.72$;
+$P(\text{sample} \mid O) = 0.3 \times 0.4 = 0.12$. Equal priors cancel, so
+$P(R \mid \text{sample}) = 0.72 / 0.84 \approx 0.857$. Four
+multiplications and a division — the naive assumption is what made the
+joint probability a pair of products. Note both features voted for R here:
+presence of 1 (0.9 vs 0.3) and absence of 2 (0.8 vs 0.4).
+:::
+
+### 5.4 · Spot the mismatch {#sec-naive-bayes-p4}
+
+A colleague's classifier works on the 20-k-mer panel but is being upgraded
+to a 4,096-k-mer vocabulary. Their code computes
+`likelihood(read, table_a) * pi` for each class exactly as this chapter
+did, then normalizes. On the new panel it prints `P = nan` for every read
+— and their unit tests, all written on the 20-k-mer panel, still pass. What
+happened, and why do the tests stay green?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+On 4,096 features both likelihoods underflow to exactly 0.0, and
+$0/(0+0)$ is `nan`. On 20 features the products bottom out near $10^{-8}$
+— far from the floor around $10^{-308}$ — so no test written at that scale
+can ever reach the failure. The mismatch is between the code's world
+(products stay representable) and the deployment world (they provably do
+not). The fix is not a bigger float; it is the log form, where 4,096 terms
+sum to a few thousand negatives and the comparison is exact. Tests inherit
+the assumptions of the world they were written in — @sec-nest's
+calibrated-rule lesson, wearing software clothes.
+:::
+
+### 5.5 · Read the notation {#sec-naive-bayes-p5}
+
+Translate the second line back into the first, naming what `const` hides,
+and state which of these two decisions survives the translation with its
+answer guaranteed unchanged: (a) *which class has the higher posterior*,
+(b) *is the winning posterior above 0.9?*
+
+$$
+P(c \mid x) \propto P(c)\prod_k P(x_k \mid c)
+\qquad\qquad
+\log P(c \mid x) = \log P(c) + \sum_k \log P(x_k \mid c) + \text{const}
+$$
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Exponentiate the second line and the sum becomes the product; `const` is
+$-\log$ of the normalizer — the same total-so-they-sum-to-1 that $\propto$
+was hiding all along. (a) survives unconditionally: logs keep order, and
+`const` is identical across classes, so the argmax is the same decision on
+either scale. (b) does not come along for free: a threshold on the
+*posterior probability* needs the normalizer actually computed, which
+means converting back from logs — and doing that carefully is its own
+small craft. Sums for deciding, probabilities for reporting.
+:::
