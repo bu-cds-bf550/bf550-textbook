@@ -3,27 +3,635 @@ id: logistic-regression
 unit: 7
 act: II
 operation: "condition"
-concepts: []
-prerequisites: []
-notation_introduced: []
-misconceptions: []
-practice_problems: []
+concepts: [condition-operation, no-story-for-x, boundary-reading, separation]
+prerequisites: [likelihood, forward-grid-inversion, log-space, generative-baseline, held-out-discipline, calibration, prior-likelihood-posterior]
+notation_introduced: [linear-predictor-eta, sigmoid, odds-log-odds, conditional-binomial]
+constructs_introduced: [np-exp]
+misconceptions:
+  - "The sigmoid is the model; the line inside it is just plumbing."
+  - "A fitted classifier that separates the training data perfectly is the best one."
+  - "If the model's accuracy is fine, its probabilities are fine."
+practice_problems:
+  - id: logit-1
+    kind: predict-the-output
+    objective: >
+      Predict what doubling the slope does to the curve's steepness and to
+      the decision boundary — two different answers — before re-running.
+    probes: boundary-reading
+    solution: worked
+  - id: logit-2
+    kind: modify-the-story
+    objective: >
+      Add a second predictor and describe what the decision boundary becomes.
+    probes: condition-operation
+    solution: worked
+  - id: logit-3
+    kind: hand-calculate
+    objective: >
+      Walk score → linear predictor → probability at three values by hand.
+    probes: condition-operation
+    solution: worked
+  - id: logit-4
+    kind: spot-the-mismatch
+    objective: >
+      Diagnose a model that reports a probability of 1.4, and name the
+      structural check it failed.
+    probes: condition-operation
+    solution: worked
+  - id: logit-5
+    kind: read-the-notation
+    objective: >
+      Translate the conditional-Binomial line into a simulation loop and one
+      honest sentence.
+    probes: condition-operation
+    solution: worked
 ---
 
 # Condition: logistic regression {#sec-logistic-regression}
 
-> **Under construction.**
-
-*The question this chapter answers:* **Is this variant pathogenic?**
-
-<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
 ## The problem
+
+A clinical lab has assembled 2,000 genetic variants whose status was settled
+the hard way — functional assays, family studies — and each is labeled
+**benign** or **pathogenic**. For every variant they also have one number: a
+conservation score, how strongly that position has resisted change across
+species. Conserved positions matter; that is why the score exists.
+
+A new variant arrives with a score of 3.7. The clinician does not want a
+label — labels she can get from a rule of thumb. She wants **the probability
+that this variant is pathogenic, as a function of its score**, because a 55%
+and a 95% lead to different conversations with the patient.
+
+You have classified before. In @sec-mix and @sec-naive-bayes the recipe was
+generative: model what each class's data looks like, then invert with Bayes.
+This chapter asks the question the other way around, and the turn is this
+week's operation: **a dial of the story becomes a function of something you
+measured.** Not "what does a pathogenic variant's score look like" but "how
+does the probability of pathogenic *move as the score moves*."
+
 ## The story
+
+Start from the oldest story in the book. Each variant's label is one
+weighted coin flip — Binomial with $n = 1$ — exactly @sec-simulating-a-process's
+per-read coin. But the weight is no longer one number: variant $i$ gets its
+own $p_i$, computed from its own score $x_i$.
+
+What should that computation be? Two constraints, both structural. The
+output must live strictly between 0 and 1, because it is a probability. And
+the story says risk *rises* with conservation — smoothly, with no cliff at
+any particular score. The simplest machine with both properties takes a
+plain straight line,
+
+$$\eta_i = \beta_0 + \beta_1 x_i,$$
+
+which ranges over all numbers, and squashes it into $(0,1)$ with the
+**sigmoid** function $\sigma(\eta) = 1/(1 + e^{-\eta})$: an S-shaped curve
+that crawls along 0 for very negative $\eta$, rises through $0.5$ at
+$\eta = 0$, and saturates toward 1. The exponential arrives in code as
+`np.exp`, and the sigmoid is three tokens of arithmetic around it.
+
+The line is not plumbing — the line is the model. You have been computing on
+the log scale since @sec-naive-bayes, and $\eta$ is exactly that:
+the sigmoid's algebra makes $\eta$ the **log-odds**,
+$\log\!\big(p/(1-p)\big)$. The story in one breath: *the log-odds of
+pathogenic is a straight line in the score.* Everything nonlinear about the
+S-shape is the unit conversion back to probability.
+
 ## The story, as code
+
+Twelve lines. The world's true dials are $\beta_0 = -1.5$, $\beta_1 = 1.2$.
+
+```{python}
+import numpy as np
+
+def sigmoid(eta):
+    return 1 / (1 + np.exp(-eta))
+
+def make_variants(n, b0, b1, rng):
+    """Scores, then one conditioned coin flip per variant."""
+    x = rng.normal(0.5, 1.8, size=n)
+    label_list = []
+    for score in x:
+        p = sigmoid(b0 + b1 * score)      # this variant's own coin weight
+        if rng.random() < p:
+            label_list.append("pathogenic")
+        else:
+            label_list.append("benign")
+    return x, np.array(label_list)
+
+rng = np.random.default_rng(163)
+x, y = make_variants(2000, -1.5, 1.2, rng)
+print("share pathogenic:", (y == "pathogenic").mean())
+print("true p at score 3.7:", sigmoid(-1.5 + 1.2 * 3.7).round(3))
+```
+
+One loop, one `if` — the same skeleton as `sequence_site` in week one, with
+a single change: the coin's weight is computed from the measurement before
+it is flipped. In this world the clinician's variant carries a true risk of
+0.95, and the chapter's job is to recover that from the 2,000 labeled
+variants alone.
+
 ## Playing with the story
+
+The model has two dials, and each does one legible thing:
+
+```{python}
+#| fig-cap: "Three sigmoids. The slope sets steepness, the intercept slides the curve; where each crosses 0.5 is its decision boundary."
+import matplotlib.pyplot as plt
+
+grid = np.arange(-6, 8, 0.1)
+fig, ax = plt.subplots(figsize=(7, 3.2))
+for b0, b1, color in [(-1.5, 1.2, "#2a78d6"), (-1.5, 3.0, "#eb6834"),
+                      (0.5, 1.2, "#1baf7a")]:
+    ax.plot(grid, sigmoid(b0 + b1 * grid), lw=2, color=color,
+            label=f"β₀={b0}, β₁={b1}")
+ax.axhline(0.5, color="#898781", ls=":", lw=1)
+ax.set_xlabel("conservation score x")
+ax.set_ylabel("P(pathogenic)")
+ax.legend(frameon=False)
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+$\beta_1$ is steepness: at 3.0 the curve is nearly a step, at 1.2 a gradual
+climb; its *sign* is direction. $\beta_0$ slides the whole curve left or
+right without changing its shape — the baseline risk. And one point on the
+curve deserves its own name: where $p(x)$ crosses $0.5$, which happens at
+$x = -\beta_0/\beta_1$ — here $1.25$. Below it, benign is the better guess;
+above it, pathogenic. That point is the **decision boundary**, and it makes
+the model two tools in one: read the curve's height and it is a probability
+machine, honest about a 0.55 versus a 0.95; read only which side of the
+boundary a score falls on and it is a classifier. The second reading
+discards information the first one paid for — which reading to use is a
+question about the decision at hand, not about the model.
+
+The generative recipe still works on this world, and comparing the two is
+instructive. Model each class's scores the generative way — a pseudocounted
+histogram per class, @sec-mix's arithmetic — and classify by Bayes; then
+line it up against the conditional curve (the true one, since this world's
+truth is ours; fitting it from data is the next section's job).
+
+```{python}
+edges = np.arange(-6, 8.5, 0.5)
+
+def histogram_table(scores, edges):
+    """Pseudocounted share of one class's scores in each bin."""
+    counts = []
+    for _ in range(len(edges) - 1):
+        counts.append(0)
+    for s in scores:
+        for b in range(len(edges) - 1):
+            if edges[b] <= s < edges[b + 1]:
+                counts[b] += 1
+    probs = []
+    for b in range(len(edges) - 1):
+        probs.append((counts[b] + 1) / (len(scores) + len(counts)))
+    return np.array(probs)
+
+table_path = histogram_table(x[:1500][y[:1500] == "pathogenic"], edges)
+table_ben = histogram_table(x[:1500][y[:1500] == "benign"], edges)
+prior_path = (y[:1500] == "pathogenic").mean()
+```
+
+```{python}
+def histogram_posterior(score, table_path, table_ben, prior_path, edges):
+    for b in range(len(edges) - 1):
+        if edges[b] <= score < edges[b + 1]:
+            numer = table_path[b] * prior_path
+            return numer / (numer + table_ben[b] * (1 - prior_path))
+    return prior_path
+
+agree = 0
+generative_correct = 0
+conditional_correct = 0
+for score, truth in zip(x[1500:], y[1500:]):
+    call_conditional = (sigmoid(-1.5 + 1.2 * score) >= 0.5)
+    call_generative = (histogram_posterior(score, table_path, table_ben,
+                                           prior_path, edges) >= 0.5)
+    if call_conditional == call_generative:
+        agree += 1
+    if call_conditional == (truth == "pathogenic"):
+        conditional_correct += 1
+    if call_generative == (truth == "pathogenic"):
+        generative_correct += 1
+print(f"agreement on 500 held-out variants: {agree/500:.2f}")
+print(f"accuracy — generative {generative_correct/500:.2f},"
+      f" conditional {conditional_correct/500:.2f}")
+```
+
+Two routes, and on this world they converge — the same calls almost
+everywhere, indistinguishable accuracy. The difference is what each had to
+assume: the generative
+route modeled *how scores arise* in each class and inverted; logistic
+regression modeled the probability-versus-score curve and **never asked how
+the scores arose at all**. No story for $x$ — nothing in the fit cares
+whether scores are Normal, skewed, or censored, only how the *label odds*
+move along them. That indifference is a real robustness, and it comes at a
+real price: a model with no story for $x$ cannot simulate new variants,
+cannot use unlabeled scores, and cannot notice that a batch of incoming
+$x$ values looks nothing like the training scores. @sec-trees takes this
+trade to its endpoint, where the story disappears entirely.
+
 ## Where the numbers come from
+
+The world's dials are unknown in practice, so fit them the way this book
+fits everything: **run candidate worlds and keep the ones that explain the
+data** — @sec-simulating-a-process's grid, now over two dials at once. The
+score of a candidate $(\beta_0, \beta_1)$ is its log-likelihood: each
+pathogenic variant contributes $\log p(x_i)$, each benign one contributes
+$\log(1 - p(x_i))$ — @sec-naive-bayes's sums, unchanged.
+
+```{python}
+is_path = (y == "pathogenic")
+
+def log_likelihood(b0, b1, x, is_path):
+    p = sigmoid(b0 + b1 * x)              # one probability per variant, at once
+    return np.log(p[is_path]).sum() + np.log(1 - p[is_path == False]).sum()
+
+b0_grid = np.arange(-3.0, 0.05, 0.05)
+b1_grid = np.arange(0.0, 2.55, 0.05)
+best = None
+surface_rows = []
+for b0 in b0_grid:
+    row = []
+    for b1 in b1_grid:
+        ll = log_likelihood(b0, b1, x, is_path)
+        row.append(ll)
+        if best is None or ll > best:     # keep the best candidate seen so far
+            best = ll
+            best_b0, best_b1 = b0, b1
+    surface_rows.append(row)
+surface = np.array(surface_rows)
+print(f"best candidate: b0 = {best_b0:.2f}, b1 = {best_b1:.2f}")
+print("fitted p at score 3.7:", sigmoid(best_b0 + best_b1 * 3.7).round(3))
+```
+
+The grid's favorite world is $(-1.60, 1.30)$ — the truth was
+$(-1.5, 1.2)$ — and its answer for the clinician is 0.96 against a true
+0.95. The `best`-so-far bookkeeping inside the double loop is a shape worth
+noticing once, because you will read it everywhere from here on: start with
+nothing, replace it whenever a better candidate appears, keep what survives.
+
+The whole surface is worth a look, not just its peak:
+
+```{python}
+#| fig-cap: "The log-likelihood over candidate worlds. The bright ridge runs diagonally: raise the slope and lower the intercept, and the data is nearly as well explained."
+fig, ax = plt.subplots(figsize=(6.2, 3.6))
+image = ax.imshow(surface, origin="lower", aspect="auto", cmap="viridis",
+                  extent=(0.0, 2.5, -3.0, 0.0), vmin=best - 60, vmax=best)
+ax.plot(best_b1, best_b0, "o", color="#eb6834", ms=8)
+ax.plot(1.2, -1.5, "x", color="#ffffff", ms=9)
+ax.set_xlabel("candidate β₁ (slope)")
+ax.set_ylabel("candidate β₀ (intercept)")
+fig.colorbar(image, label="log-likelihood")
+plt.show()
+```
+
+The peak (dot) sits beside the truth (cross), but the shape around it is
+the real information: not a round hill but a **diagonal ridge**. Worlds
+with a bigger slope and a smaller intercept explain the data almost as well
+— the two dials trade off, because both can move the curve's height over
+the bulk of the scores. It is @sec-simulating-a-process's flat-topped
+likelihood again, grown a dimension: the data pins a *combination* of the
+dials more tightly than either alone. Any honest error bar here would be a
+tilted ellipse, not a pair of independent intervals.
+
+This two-dial search is common enough that every statistics library ships a
+polished, faster version of it. Nothing the polished version does is
+different in kind from this grid; when you eventually call one, you will
+know exactly what it is searching for and what surface it is climbing.
+
+The @sec-evaluation reflexes apply without ceremony — fit on 1,500
+variants, grade on the held-out 500, audit the promises:
+
+```{python}
+best = None
+for b0 in b0_grid:
+    for b1 in b1_grid:
+        ll = log_likelihood(b0, b1, x[:1500], is_path[:1500])
+        if best is None or ll > best:
+            best = ll
+            fit_b0, fit_b1 = b0, b1
+p_test = sigmoid(fit_b0 + fit_b1 * x[1500:])
+truth_test = is_path[1500:]
+print(f"held-out accuracy: {((p_test >= 0.5) == truth_test).mean():.3f}")
+for low in (0.0, 0.3, 0.6):
+    in_bin = (p_test >= low) & (p_test < low + 0.3)   # calls claiming this range
+    print(f"  claimed {p_test[in_bin].mean():.2f} -> observed"
+          f" {truth_test[in_bin].mean():.2f}   (n={in_bin.sum()})")
+```
+
+Accuracy 0.836, and the bins rise along the diagonal — though the top bin
+claims 0.77 and delivers 0.89, a reminder with its own lesson: an audit on
+91 variants has sampling error too, and judging a calibration gap means
+asking the @sec-simulating-a-process question of the *auditor* — how much
+would this bin wobble across reruns? Honest fit, honest confidence — in
+this world, where the truth really is a monotone curve. Hold that clause.
+
 ## The notation
+
+The whole chapter compresses to one conditional line, the same shape as
+@sec-nest's:
+
+$$
+Y_i \mid x_i \;\sim\; \mathrm{Binomial}\!\big(1,\ \sigma(\beta_0 + \beta_1 x_i)\big)
+$$
+
+Read aloud: *given variant $i$'s score, its label is one coin flip whose
+weight is the sigmoid of a line in that score.* The pieces have working
+names now — $\eta = \beta_0 + \beta_1 x$ is the **linear predictor**;
+$\sigma$ is the sigmoid; $p/(1-p)$ is the **odds** and $\eta$ is its log.
+With several measurements the line simply grows terms,
+$\eta = \beta_0 + \beta_1 x_1 + \beta_2 x_2 + \cdots$ — one slope per
+measurement, nothing else new.
+
+Say the general move once, plainly, because two later chapters lean on this
+exact sentence: **conditioning takes a parameter of a generative story and
+makes it a function of what you measured.** This chapter conditioned a
+Binomial's $p$ through a sigmoid. @sec-linear-regression conditions a
+Normal's mean — same move, *no squashing needed*, since a mean may roam.
+@sec-glms conditions a count's rate through an exponential. One operation,
+three link functions; the story changes less than the notation does.
+
 ## A worked design
+
+> **The problem.** A genome-engineering group runs CRISPR edits at hundreds
+> of genomic sites per month and logs, for each attempt, whether the edit
+> succeeded, plus the guide RNA's properties: GC content, position within
+> the gene, a chromatin-accessibility score for the site, and which of
+> three delivery batches was used. They want a tool that, given a proposed
+> guide, reports the probability the edit succeeds — to triage which guides
+> are worth synthesizing. Design it.
+
+**Frame.** Each attempt is one conditioned coin: success probability a
+function of the guide's measurements. The deliverable is explicitly the
+*probability*, not the label — triage means ranking guides and setting a
+synthesis cutoff that the lab can move as budgets change, which is the
+probability-machine reading of the model. The unknowns are the slopes: how
+much each property moves the log-odds. I am treating attempts as
+independent given their features, which is false in a specific way — guides
+targeting the same gene share unmeasured context — and I flag it now
+because it will make my error bars optimistic even when the curve is right.
+Delivery batch is a measured condition like any other; putting it in the
+model is what "controlling for it" means, and leaving it out would let
+batch effects masquerade as chromatin effects wherever batches and sites
+correlate.
+
+**Decompose.** (1) The conditional story: success ~ Binomial(1, σ(η)) with
+η linear in GC, position, accessibility, and batch. (2) The fit, by
+likelihood search over the slopes. (3) Held-out discipline per
+@sec-evaluation: fit on past months, grade on the most recent one — a time
+split, because the tool will be used forward in time, and a random split
+would let the future leak into the past. (4) The calibration audit on that
+held-out month, since a triage tool's cutoffs are set on its claimed
+probabilities. (5) A range check at deployment: flag proposed guides whose
+measurements sit outside the training ranges — the fitted curve is an
+interpolation, and the model, having no story for $x$, will extrapolate
+confidently and baselessly.
+
+**Select.** Logistic regression on the logged features, with the fit's
+uncertainty reported alongside the slopes. The rejected alternative is the
+generative route — model each feature's distribution among successes and
+failures, invert with Bayes — rejected because four correlated features
+make "model the features" the hard half of the problem, and this chapter's
+model spends nothing on it. I concede the generative route one real virtue
+this design must buy back by hand: it notices when incoming guides look
+unlike training guides, which is exactly what step 5's range check
+re-adds. The second rejected alternative is a flexible black-box fit; with
+hundreds of attempts, not tens of thousands, a two-parameter-per-feature
+curve is what the data can support, and the slopes are themselves the
+lab's scientific product — "accessibility matters this much" — which a
+black box would not report.
+
+**Anticipate.** First, separation: if some batch or GC band has *no*
+recorded failures, the likelihood search will run its slope toward
+infinity and report certainties — the fix (a penalty on slope size) is a
+chapter away, and until then the symptom to watch for is fitted
+probabilities of exactly 0 or 1. Second, non-monotone truth: GC content
+plausibly has a sweet spot — too low and too high both fail — and a
+monotone-in-GC model will average the two failure regimes into a flat,
+wrong slope; the regional calibration audit is the instrument that would
+catch it. Third, feedback: once the tool triages guides, the lab stops
+attempting the guides it scores poorly, and next year's training data
+contains no evidence about exactly the region where the model most needs
+correcting. That one has no clean fix; logging a small random sample of
+"rejected" guides is the honest patch.
+
+**What to notice.** The deliverable dictated the reading (probability
+machine, not classifier); the time-based split came from how the tool will
+be used; and two of the three anticipated failures are this chapter's own
+failure modes, named before deployment rather than after.
+
 ## When the model is wrong
+
+Box's clause — **all models are wrong** [@box1976] — lands twice here,
+once on the fit and once on the shape.
+
+**First, executed: perfect separation, where the fit's success is the
+failure.** Thirty variants, and in this draw the two classes do not
+overlap at all — every benign score below every pathogenic one. Watch the
+likelihood as the slope grows, with the boundary held fixed:
+
+```{python}
+rng = np.random.default_rng(167)
+score_list, label_list = [], []
+for _ in range(15):
+    score_list.append(rng.normal(-2, 0.5))
+    label_list.append("benign")
+for _ in range(15):
+    score_list.append(rng.normal(2, 0.5))
+    label_list.append("pathogenic")
+xs = np.array(score_list)
+ys = np.array(label_list)
+is_p = (ys == "pathogenic")
+
+for b1 in (1, 4, 8, 16):
+    ll = log_likelihood(0.0, b1, xs, is_p)
+    print(f"slope {b1:>2}: log-likelihood {ll:.4f},  p at x = 1: {sigmoid(b1):.6f}")
+```
+
+The log-likelihood climbs toward its ceiling of zero and never arrives —
+every doubling of the slope explains this data *better*, forever, because
+the steeper the curve the more probability lands on the labels actually
+seen. The search has no reason to stop: $\hat\beta_1 \to \infty$, the
+sigmoid hardens into a step, and every prediction becomes a certainty. On
+thirty variants, clean separation is not evidence of a strong effect; it
+is what small samples do. The fitted certainties are an artifact of the
+sample size, and the repair — a term that charges the likelihood for large
+slopes — is the opening move of @sec-linear-regression, where it will earn
+a surprising second name.
+
+**Second, executed: the truth has a shape the model cannot say.** Give the
+world a valley — risk high at *both* score extremes, low in the middle —
+and fit the monotone model to it:
+
+```{python}
+def make_valley_variants(n, rng):
+    x = rng.normal(0, 2.0, size=n)
+    label_list = []
+    for score in x:
+        p = sigmoid(-2.5 + 1.4 * np.abs(score))    # risk rises at BOTH extremes
+        if rng.random() < p:
+            label_list.append("pathogenic")
+        else:
+            label_list.append("benign")
+    return x, np.array(label_list)
+
+rng = np.random.default_rng(173)
+xv, yv = make_valley_variants(2000, rng)
+fit_b0, fit_b1 = None, None
+best = None
+for b0 in b0_grid:
+    for b1 in b1_grid:
+        ll = log_likelihood(b0, b1, xv[:1500], (yv[:1500] == "pathogenic"))
+        if best is None or ll > best:
+            best = ll
+            fit_b0, fit_b1 = b0, b1
+p_test = sigmoid(fit_b0 + fit_b1 * xv[1500:])
+truth_test = (yv[1500:] == "pathogenic")
+print(f"fitted: b0 = {fit_b0:.2f}, b1 = {fit_b1:.2f}")
+for name, in_region in (("x < -1.5", xv[1500:] < -1.5),
+                        ("middle   ", np.abs(xv[1500:]) <= 1.5),
+                        ("x >  1.5", xv[1500:] > 1.5)):
+    print(f"  {name}: predicted {p_test[in_region].mean():.2f}   "
+          f"observed {truth_test[in_region].mean():.2f}")
+```
+
+The fit's answer to a valley is a **flat line** — $\hat\beta_1 = 0$. A
+model that can only say "up" or "down," shown a world that goes down then
+up, says *nothing*: it predicts 0.44 for every variant, while the truth
+runs 0.69 on the left, 0.16 in the middle, 0.65 on the right. Note what
+does and does not detect this. Accuracy quietly reports 0.60 — mediocre,
+not alarming. The overall calibration plot would even look fine, since
+0.44 is the correct *average*. Only calibration **by region** — the
+@sec-evaluation audit, sliced along $x$ — exposes a model wrong everywhere
+in a way that cancels in the aggregate. This failure is a *model* defect,
+not a protocol defect: the evaluation was honest; the hypothesis class
+could not contain the truth. Models that let the data draw the shape —
+including the valley — are @sec-trees's opening offer.
+
+**Third, the pattern with a name by now.** The intercept is where the
+prevalence lives: refit this chapter's model in a clinic whose case mix
+has half the pathogenic rate, and $\beta_0$ falls by about the log of that
+odds ratio while $\beta_1$ stays put — the score's *effect* travels, the
+*baseline* does not. Deploying a fitted curve into a population with a
+different base rate mis-centers every probability it reports, exactly as
+it did in @sec-mix's screening lab and @sec-naive-bayes's failed
+depletion. Third appearance; it is a law of the genre, not an anecdote:
+**slopes travel, intercepts are local.** Refit the intercept where you
+deploy, or report odds ratios and let the locals supply the base rate.
+
 ## Practice problems
--->
+
+Ungraded, solutions worked. Do them before looking.
+
+### 7.1 · Predict the output {#sec-logistic-regression-p1}
+
+Take the true world ($\beta_0 = -1.5$, $\beta_1 = 1.2$) and double the
+slope to 2.4. Two predictions before you rerun the dials figure: what
+happens to the curve's steepness, and what happens to the decision
+boundary — does it stay at 1.25, and why or why not?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Steepness doubles — the transition from low to high risk happens over half
+the score range. The boundary *moves*: it sits at $-\beta_0/\beta_1 =
+1.5/2.4 = 0.625$, half its old value. Doubling the slope steepens the
+curve *around a pivot at $\eta = 0$*, and where $\eta = 0$ falls depends
+on both dials. Only doubling $\beta_0$ *and* $\beta_1$ together leaves the
+boundary fixed while steepening the curve — the ridge in the fitted
+surface was drawn by exactly this near-trade.
+:::
+
+### 7.2 · Modify the story {#sec-logistic-regression-p2}
+
+Give each variant a second measurement — say, an expression level $z$ —
+and a story $\eta = -1.5 + 1.2x + 0.9z$. Modify `make_variants` to draw
+and use both. Then answer in one sentence: what shape is the decision
+boundary now, in the $(x, z)$ plane?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+```{python}
+def make_variants_2d(n, rng):
+    x = rng.normal(0.5, 1.8, size=n)
+    z = rng.normal(0.0, 1.0, size=n)
+    label_list = []
+    for score, expr in zip(x, z):
+        p = sigmoid(-1.5 + 1.2 * score + 0.9 * expr)
+        if rng.random() < p:
+            label_list.append("pathogenic")
+        else:
+            label_list.append("benign")
+    return x, z, np.array(label_list)
+
+rng = np.random.default_rng(179)
+x2, z2, y2 = make_variants_2d(2000, rng)
+print("share pathogenic:", (y2 == "pathogenic").mean())
+```
+The boundary is the set where $\eta = 0$: $-1.5 + 1.2x + 0.9z = 0$ — **a
+straight line** in the $(x, z)$ plane (tilted, since both slopes are
+nonzero). One predictor gave a boundary point; two give a line; more give
+a flat plane in more dimensions. The model's boundaries are always flat —
+which is precisely the limitation the valley demo exposed from another
+angle.
+:::
+
+### 7.3 · Hand-calculate {#sec-logistic-regression-p3}
+
+With $\beta_0 = -1.5$ and $\beta_1 = 1.2$, compute $\eta$ and then
+$p = \sigma(\eta)$ at scores $x = 0$, $x = 1.25$, and $x = 3.7$. One
+$e^{-\eta}$ evaluation each; two decimal places is plenty.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+At $x=0$: $\eta = -1.5$, $p = 1/(1 + e^{1.5}) = 1/(1+4.48) \approx 0.18$.
+At $x = 1.25$: $\eta = 0$, $p = 1/(1+1) = 0.5$ exactly — this is the
+boundary, by construction. At $x = 3.7$: $\eta = 2.94$,
+$p = 1/(1 + e^{-2.94}) = 1/(1 + 0.053) \approx 0.95$ — the clinician's
+variant. The whole model is: a line you can compute in your head, then one
+squash.
+:::
+
+### 7.4 · Spot the mismatch {#sec-logistic-regression-p4}
+
+A colleague skips the sigmoid: they fit the straight line
+$p_i = \beta_0 + \beta_1 x_i$ to the 0/1 labels directly (it is, they
+note, simpler, and the fit runs fine). Their tool reports
+$P(\text{pathogenic}) = 1.4$ for a variant with a high score. What
+structural check did this model fail, and — harder — why did it *also*
+mislead them at ordinary scores, where its outputs look like probabilities?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+The check is @sec-simulating-a-process's oldest: force the input to an
+extreme and see whether the output can stay legal. A line is unbounded, so
+a large enough score must eventually push "probability" past 1 — 1.4 is
+not a rounding problem but a guarantee. The subtler failure: to keep its
+line from escaping $(0,1)$ over the data's range, the fit flattens the
+slope in the middle, so even its in-range outputs are systematically too
+timid near 0.5 and too extreme near the edges — miscalibrated everywhere,
+not just where it is absurd. The sigmoid is not cosmetic; it is what lets
+the *line* part of the model be honest at every score.
+:::
+
+### 7.5 · Read the notation {#sec-logistic-regression-p5}
+
+Translate into a simulation loop and then into one sentence a clinician
+would accept:
+
+$$
+Y_i \mid x_i \sim \mathrm{Binomial}\!\big(1,\ \sigma(-0.4 + 2.1\,x_i)\big)
+$$
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+```{python}
+rng = np.random.default_rng(181)
+for score in (0.0, 0.2, 1.0):
+    p = sigmoid(-0.4 + 2.1 * score)
+    outcome = rng.random() < p
+    print(f"x = {score}: p = {p:.2f}, one draw: {outcome}")
+```
+The loop: compute the line, squash it, flip that coin — per subject, using
+that subject's own $x$. The sentence: "each patient's chance of the
+outcome rises steadily with $x$ — even odds near $x = 0.2$, and every
+one-unit increase in $x$ multiplies the odds by about $e^{2.1} \approx 8$."
+The bar in $Y_i \mid x_i$ is @sec-nest's *given*: the coin is flipped
+after, and in light of, the measurement.
+:::

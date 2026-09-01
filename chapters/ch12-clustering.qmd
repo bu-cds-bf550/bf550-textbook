@@ -2,28 +2,774 @@
 id: clustering
 unit: 12
 act: III
-operation: "mix, hidden"
-concepts: []
-prerequisites: []
-notation_introduced: []
-misconceptions: []
-practice_problems: []
+operation: "mix (labels hidden)"
+concepts: [full-toolkit]
+prerequisites: [prior-likelihood-posterior, mixing-proportion, identifiability, labels-known-then-hidden, soft-assignment, normal-justified, latent-continuous, reduced-space, null-distribution, resampling-instability, variance-as-diagnostic]
+notation_introduced: [responsibilities, within-between-scatter, k-as-decision]
+constructs_introduced: [while-loop]
+misconceptions:
+  - "The clustering found the cell types."
+  - "A clean, well-separated clustering plot is evidence of real groups."
+  - "Choosing k is estimating a parameter."
+practice_problems:
+  - id: clus-1
+    kind: predict-the-output
+    objective: >
+      Predict what k-means at k = 3 returns on a world with one true group
+      — before running it.
+    probes: full-toolkit
+    solution: worked
+  - id: clus-2
+    kind: modify-the-story
+    objective: >
+      Shrink one group's mixing proportion and find the point where the
+      rare cell type vanishes into a neighbor.
+    probes: full-toolkit
+    solution: worked
+  - id: clus-3
+    kind: hand-calculate
+    objective: >
+      Run one full k-means round on six points by hand — assign, average,
+      check for movement.
+    probes: full-toolkit
+    solution: worked
+  - id: clus-4
+    kind: spot-the-mismatch
+    objective: >
+      Diagnose a "novel subtype" whose stability collapses under
+      resampling.
+    probes: full-toolkit
+    solution: worked
+  - id: clus-5
+    kind: read-the-notation
+    objective: >
+      State the responsibilities ↔ posterior symmetry yourself — the
+      promise units 4 and 12 have carried all term.
+    probes: full-toolkit
+    solution: worked
 ---
 
 # Are there groups here? Clustering and validating k {#sec-clustering}
 
-> **Under construction.**
-
-*The question this chapter answers:* **Do these cells form distinct types — and how many?**
-
-<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
 ## The problem
+
+Three hundred cells from a dissociated tumor, profiled and projected into
+the coordinates of @sec-pca. The core facility asks the standard question:
+**how many cell types are in this sample, and which cells belong to
+which?**
+
+No labels exist. Not withheld — *nonexistent*: no one has ever annotated
+these cells, no held-out truth waits to grade you, and no future
+experiment will hand back an answer key. Every chapter until now kept
+truth somewhere — set by the simulator, or curated into training labels,
+or purchasable as an anchor set. This chapter is what remains when that
+is gone for good, and it comes with an honest sub-question the facility
+did not ask: *is "types" even the right noun for what this tissue has?*
+
 ## The story
+
+You have already written this chapter's story. It is @sec-mix's, verbatim
+— nature draws a class by a weighted coin, the class writes the features
+— and @sec-mix made you a promise about it: *labels visible now, and
+remember that it is an assumption, because a later chapter exists to
+delete it.* Watch the deletion happen:
+
+```{python}
+import numpy as np
+
+CENTERS = np.array([[0.0, 0.0], [4.0, 1.0], [1.5, 3.5]])
+
+def one_cell(pi, centers, spread, rng):
+    """ch04's story in PC coordinates: draw the class, then the features."""
+    roll = rng.random()
+    if roll < pi[0]:
+        which = 0
+    elif roll < pi[0] + pi[1]:
+        which = 1
+    else:
+        which = 2
+    x = rng.normal(centers[which, 0], spread)
+    y = rng.normal(centers[which, 1], spread)
+    return which, np.array([x, y])
+
+def make_cells(n, pi, centers, spread, rng):
+    labels, rows = [], []
+    for _ in range(n):
+        which, cell = one_cell(pi, centers, spread, rng)
+        labels.append(which)
+        rows.append(cell)
+    return np.array(labels), np.array(rows)
+
+rng = np.random.default_rng(503)
+hidden_truth, X = make_cells(300, [0.4, 0.35, 0.25], CENTERS, 0.7, rng)
+```
+
+```{python}
+#| fig-cap: "The same three hundred cells twice. Left: what the simulator knows. Right: what you get."
+import matplotlib.pyplot as plt
+
+fig, axes = plt.subplots(1, 2, figsize=(8, 3.4))
+group_colors = ["#2a78d6", "#eb6834", "#1baf7a"]
+for t in range(3):
+    in_t = (hidden_truth == t)
+    axes[0].plot(X[in_t, 0], X[in_t, 1], ".", ms=5, color=group_colors[t])
+axes[0].set_title("with the label column", fontsize=10)
+axes[1].plot(X[:, 0], X[:, 1], ".", ms=5, color="#898781")
+axes[1].set_title("the label column, deleted", fontsize=10)
+for ax in axes:
+    ax.set_xlabel("PC1")
+    ax.spines[["top", "right"]].set_visible(False)
+axes[0].set_ylabel("PC2")
+plt.show()
+```
+
+Everything this book has practiced sits in that pair of panels. The class
+is now a **latent** variable — @sec-pca's word, at the discrete type
+instead of the continuous one — and `hidden_truth` stays inside the
+simulator from here on: the methods below never touch it, and it grades
+them at the end, exactly as @sec-trees taught. The mixing proportions,
+the identifiability limit, the posterior arithmetic — every ch04 fact
+about this story is still true. What changed is only what you are given.
+
 ## The story, as code
+
+The story's code is written above; what needs writing is the *method*.
+The field's workhorse is **k-means**, and the cleanest way to own it is
+as the hard-edged limit of the mixture you already know: guess $k$
+centers; assign each cell to its nearest center — a posterior forced to
+certainty, all responsibility on one class; move each center to the
+average of its cells — re-estimating each component's mean from the
+cells "assigned" to it; and repeat *until nothing changes*.
+
+That last clause needs a construct twelve chapters never did: a loop
+whose length nobody knows in advance. `while moved:` runs its body as
+long as its condition holds — the first and only `while` in this book,
+arriving exactly where "repeat until converged" becomes the story.
+
+```{python}
+def nearest_center(X, centers):
+    labels = []
+    for cell in X:
+        best_d = None
+        for c in range(len(centers)):
+            gap = cell - centers[c]
+            distance = (gap * gap).sum()
+            if best_d is None or distance < best_d:
+                best_d = distance
+                best_c = c
+        labels.append(best_c)
+    return np.array(labels)
+```
+
+```{python}
+def kmeans(X, k, rng):
+    picks = rng.integers(0, len(X), size=k)
+    centers = X[picks] * 1.0                   # start from k random cells
+    moved = True
+    while moved:                               # repeat until nothing changes
+        assignments = nearest_center(X, centers)
+        new_centers = []
+        for c in range(k):
+            in_c = (assignments == c)
+            if in_c.sum() == 0:
+                new_centers.append(X[rng.integers(0, len(X))] * 1.0)
+            else:
+                new_centers.append(X[in_c].mean(axis=0))
+        new_centers = np.array(new_centers)
+        moved = (np.abs(new_centers - centers) > 1e-9).sum() > 0
+        centers = new_centers
+    return centers, nearest_center(X, centers)
+
+rng = np.random.default_rng(509)
+centers, assignments = kmeans(X, 3, rng)
+```
+
 ## Playing with the story
+
+Run it where the truth is separated and kept:
+
+```{python}
+print("found centers (in the order k-means numbered them):")
+print(np.round(centers, 1))
+print("planted centers:")
+print(CENTERS)
+
+agree = 0
+for c in range(3):
+    in_c = (assignments == c)
+    counts = []
+    for t in range(3):
+        counts.append((hidden_truth[in_c] == t).sum())
+    agree += max(counts)
+print("cells agreeing with their cluster's majority truth:", agree, "of 300")
+```
+
+The found centers are the planted ones — shuffled, because cluster
+*numbers* are arbitrary bookkeeping (a relabeled clustering is the same
+clustering; every comparison against truth must allow it, as the
+majority-matching above does). Agreement: 299 of 300. On a well-separated
+mixture, the hard-limit method recovers the soft story almost perfectly.
+
+The soft story is still available when you want it. Each cell's
+**responsibilities** — the field's name for the mixture's per-cell
+posterior, @sec-mix's arithmetic with @sec-linear-regression's bells as
+the likelihood — grade how much the hard assignment concealed:
+
+```{python}
+def responsibilities(cell, centers, spread, pi):
+    """P(class | cell): ch04's posterior, with Normal components."""
+    numerators = []
+    for c in range(len(centers)):
+        gap = cell - centers[c]
+        d2 = (gap * gap).sum()
+        numerators.append(pi[c] * np.exp(-d2 / (2 * spread * spread)))
+    numerators = np.array(numerators)
+    return numerators / numerators.sum()
+
+pi_flat = [1/3, 1/3, 1/3]
+print("a cell at a center:  ",
+      np.round(responsibilities(np.array([4.0, 1.0]), centers, 0.7, pi_flat), 3))
+print("a cell between two:  ",
+      np.round(responsibilities((CENTERS[0] + CENTERS[2]) / 2, centers, 0.7, pi_flat), 3))
+```
+
+A cell at a center: responsibility 1.000 on its class — the hard
+assignment loses nothing. A cell midway between two groups: 0.47 to 0.53
+— a coin flip the hard assignment silently rounds to certainty. In a
+separated world, few cells live there; the identifiability dial says what
+happens when many do:
+
+```{python}
+close_centers = np.array([[0.0, 0.0], [1.2, 0.3], [0.5, 1.0]])
+rng = np.random.default_rng(563)
+truth_close, X_close = make_cells(300, [0.4, 0.35, 0.25], close_centers, 0.7, rng)
+rng = np.random.default_rng(569)
+_, assign_close = kmeans(X_close, 3, rng)
+agree = 0
+for c in range(3):
+    in_c = (assign_close == c)
+    counts = []
+    for t in range(3):
+        counts.append((truth_close[in_c] == t).sum())
+    agree += max(counts)
+print("overlapping components: agreement", agree, "of 300 — "
+      "and k-means still returned three tidy groups")
+```
+
+Slide the components into each other — @sec-mix's identifiability failure,
+labels-off edition — and agreement collapses to 197 of 300, *while the
+output looks exactly as confident as before*: three centers, three
+colorable groups, every cell assigned. **The method always answers.**
+Nothing in its output distinguishes a world with three cell types from a
+world with one smear, and no labels will ever arrive to arbitrate. That
+is the problem the next section exists for.
+
 ## Where the numbers come from
+
+The number the facility wants is $k$. With no truth to check against,
+three currencies remain: an internal score (which will betray you), a
+null reference (@sec-repeat's oldest move), and stability under
+resampling (@sec-trees's). Grade all three on the test bed, where true
+$k$ is known to be 3.
+
+**The dead end first, executed.** The obvious score is tightness — total
+squared distance from each cell to its center. Watch it across $k$:
+
+```{python}
+def within_scatter(X, centers, assignments):
+    total = 0.0
+    for c in range(len(centers)):
+        in_c = (assignments == c)
+        gaps = X[in_c] - centers[c]
+        total += (gaps * gaps).sum()
+    return total
+
+rng = np.random.default_rng(521)
+for k in range(1, 8):
+    best_w = None
+    for _ in range(3):                       # a few restarts; keep the tightest
+        cent, assign = kmeans(X, k, rng)
+        w = within_scatter(X, cent, assign)
+        if best_w is None or w < best_w:
+            best_w = w
+    print(f"k = {k}: within-cluster scatter {best_w:.0f}")
+```
+
+Monotone: 1768, 948, 302, 262, 226… — every extra center makes cells
+closer to *some* center, forever, on any data whatsoever, down to
+$k = 300$ where the scatter is zero and the "clustering" is the dataset.
+Tightness cannot choose $k$ because it never votes against more. (The
+sharp drop into $k = 3$ and shuffle afterward is real information — but
+"read the bend by eye" is not a procedure, and the next two tools make
+the bend testable.)
+
+**The null reference.** The tightness of your data means nothing alone;
+compare it against the tightness of *structureless* data — cells drawn
+uniformly over the same range, @sec-repeat's null world in its
+twelfth-week clothes. The **gap statistic** is that comparison, per $k$:
+how much tighter is your data than structureless data, when both are
+granted $k$ centers?
+
+```{python}
+def log_within(X, k, rng, tries=3):
+    best_w = None
+    for _ in range(tries):
+        cent, assign = kmeans(X, k, rng)
+        w = within_scatter(X, cent, assign)
+        if best_w is None or w < best_w:
+            best_w = w
+    return np.log(best_w)
+
+def reference_cells(X, rng):
+    """Structureless cells spanning the same range — the null world."""
+    lo0, hi0 = X[:, 0].min(), X[:, 0].max()
+    lo1, hi1 = X[:, 1].min(), X[:, 1].max()
+    rows = []
+    for _ in range(len(X)):
+        rows.append(np.array([rng.uniform(lo0, hi0), rng.uniform(lo1, hi1)]))
+    return np.array(rows)
+
+rng = np.random.default_rng(523)
+for k in range(1, 7):
+    data_log = log_within(X, k, rng)
+    reference_logs = []
+    for _ in range(8):
+        reference_logs.append(log_within(reference_cells(X, rng), k, rng, tries=2))
+    print(f"k = {k}: gap {np.mean(reference_logs) - data_log:.2f}")
+```
+
+The gap climbs to its peak at $k = 3$ — 1.25 — and declines after: three
+centers buy your data far more tightness than they buy noise, and a
+fourth buys no more than it buys noise. The null said 3, and the null is
+right, and you can *only* say "right" because this is the test bed.
+
+**Stability.** A real grouping should survive perturbation — @sec-trees's
+instability lesson inverted into a validator. Resample the cells, re-run
+k-means, and ask of many *pairs* of cells: do you two land together, or
+apart, consistently across runs?
+
+```{python}
+def pair_stability(X, k, n_runs, rng):
+    n = len(X)
+    pair_a = rng.integers(0, n, size=300)     # 300 random pairs of cells
+    pair_b = rng.integers(0, n, size=300)
+    together_count = pair_a * 0
+    for _ in range(n_runs):
+        picks = rng.integers(0, n, size=n)    # a bootstrap world
+        cent, _ = kmeans(X[picks], k, rng)
+        assign = nearest_center(X, cent)
+        together_count = together_count + (assign[pair_a] == assign[pair_b])
+    fraction_together = together_count / n_runs
+    consistency = []
+    for f in fraction_together:
+        consistency.append(max(f, 1 - f))     # consistent either way counts
+    return np.mean(consistency)
+
+rng = np.random.default_rng(557)
+for k in (2, 3, 4, 5):
+    print(f"k = {k}: pair consistency {pair_stability(X, k, 12, rng):.3f}")
+```
+
+At the true $k$, pairs almost never change their relationship — 0.988 —
+because the boundaries fall in empty space and resampling cannot move
+them onto cells. At $k = 4$ the method must cut *through* a real group,
+the cut lands somewhere different every resample, and consistency drops.
+**Instability is what over-clustering feels like from inside**, and it is
+measurable without a single label.
+
+One tool of the same family, worth reading fluently: agglomerative
+merging. Start with every cell alone; repeatedly merge the two closest
+groups; record each merge's distance. The record is the information in a
+dendrogram:
+
+```{python}
+def merge_heights(X):
+    clusters = []
+    for i in range(len(X)):
+        clusters.append([i])
+    heights = []
+    while len(clusters) > 1:                 # merge until one group remains
+        best_d = None
+        for a in range(len(clusters)):
+            for b in range(a + 1, len(clusters)):
+                for i in clusters[a]:
+                    for j in clusters[b]:
+                        gap = X[i] - X[j]
+                        d = np.sqrt((gap * gap).sum())
+                        if best_d is None or d < best_d:
+                            best_d = d
+                            best_a, best_b = a, b
+        merged = clusters[best_a] + clusters[best_b]
+        survivors = []
+        for idx in range(len(clusters)):
+            if idx != best_a and idx != best_b:
+                survivors.append(clusters[idx])
+        survivors.append(merged)
+        clusters = survivors
+        heights.append(best_d)
+    return np.array(heights)
+```
+
+```{python}
+#| fig-cap: "The last merges of an agglomerative run. Real groups resist merging — the final joins happen across empty space, and the jump marks them."
+rng = np.random.default_rng(571)
+_, X_small = make_cells(40, [0.4, 0.35, 0.25], CENTERS, 0.7, rng)
+rng = np.random.default_rng(577)
+rows = []
+for _ in range(40):
+    rows.append(np.array([rng.uniform(0, 5), rng.uniform(0, 5)]))
+N_small = np.array(rows)
+
+fig, ax = plt.subplots(figsize=(6.4, 3))
+ax.plot(np.arange(1, 40), merge_heights(X_small), "o-", color="#2a78d6",
+        lw=1.5, ms=4, label="three planted groups")
+ax.plot(np.arange(1, 40), merge_heights(N_small), "o-", color="#898781",
+        lw=1.5, ms=4, label="structureless")
+ax.set_xlabel("merge number")
+ax.set_ylabel("distance at which the merge happened")
+ax.legend(frameon=False)
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+Blue: thirty-seven cheap merges inside groups, then two expensive ones —
+the last joins must reach across the empty space between real groups, and
+the jump *is* the "cut the tree at height h, get k groups" reading. Gray:
+noise merges smoothly, no jump — **but notice it still merges all the way
+to one group.** The procedure builds a tree for any data whatsoever; a
+dendrogram's existence is not evidence, only its jumps are.
+
+Say the conclusion of this section plainly: **k is a decision, not an
+estimate.** Nothing here recovers a true parameter; the gap and the
+stability are arguments a decision can cite, and the test bed is where
+you learn how far to trust them at your sample size.
+
 ## The notation
+
+The field's vocabulary for things you already own. **Responsibilities**:
+$P(\text{class } c \mid \text{cell})$ — @sec-mix's posterior with the
+class latent; k-means is the limit where each cell's responsibilities are
+rounded to one and zeros. The tightness this chapter minimized is
+**within-cluster scatter**; its complement across centers is
+**between-cluster scatter**, and the two split the total exactly as
+@sec-nest's within-day and between-day pieces split the count variance —
+the total-variance decomposition, third appearance, wearing coordinates.
+And $k$ enters the decoder as *a decision defended by a gap and a
+stability*, never a fitted parameter.
+
 ## A worked design
+
+> **The problem.** A cancer consortium has bulk expression for 800
+> patient tumors of one histology and wants molecular subtypes — with
+> intent: next year's trial will *assign treatment arms by subtype*. They
+> ask for the clustering and the subtype count. Design the analysis,
+> remembering that an unstable subtype is an unethical arm.
+
+**Frame.** The stakes convert every soft claim into a hard one: a
+patient's arm should not depend on which bootstrap of the discovery
+cohort the pipeline happened to see, so *stability is not a diagnostic
+here — it is the deliverable*. The latent story is ch04/ch12's — subtype
+draws expression program — and the first honest question is this
+chapter's sub-question: does this histology have *kinds*, or a continuum
+(grade, immune infiltration, proliferation) that k-means will happily
+bin? Both hypotheses go in as first-class citizens. Everything runs in a
+reduced space (@sec-pca), with the batch sweep from @sec-pca's worked
+design done *first*, because a two-site consortium's strongest latent
+variable is usually the freezer.
+
+**Decompose.** (1) The @sec-pca QC and metadata sweep; nothing proceeds
+until site and batch are ruled out of the top components or regressed
+away with that decision documented. (2) Clustering across $k = 2 \dots 8$
+with restarts; gap statistic against reference nulls; the tightness
+curve shown but never cited as evidence. (3) The stability harness —
+resample patients, recluster, pair-consistency per $k$, *and* per-cluster:
+a four-subtype answer where three subtypes are stable and one dissolves
+is a three-subtype answer with a caveat, not a four-subtype answer.
+(4) The continuum audit: @sec-pca's scores colored by the cluster labels
+— clusters that tile a smooth gradient in adjacent bands are bins on a
+continuum (this chapter's first failure, run deliberately); report says
+so if seen. (5) The test bed, sized to this cohort: plant three subtypes
+at realistic separations in 800 simulated patients, measure how often
+this exact pipeline recovers them and how often it hallucinates a fourth
+— the pipeline's operating characteristics, published beside its answer.
+(6) The handoff artifact: per-patient responsibilities, not just hard
+labels — the trial's eligibility committee should *see* the coin-flip
+patients (0.55/0.45) rather than inherit silent roundings.
+
+**Select.** k-means-family clustering in the reduced space with the full
+validation harness, over two rejected alternatives. Density/graph-based
+methods (the single-cell default) are built for finding many small
+islands in huge n; at 800 bulk tumors, smooth mixtures are the plausible
+world and centroid methods are both adequate and legible to a trial
+committee. Full soft mixture fitting adds honesty (responsibilities come
+natively) at the cost of the spread parameters to estimate; the design
+keeps hard k-means for discovery and computes responsibilities post hoc
+around the found centers — @sec-mix's arithmetic, no new machinery. I
+concede a real mixture fit wins if component spreads truly differ by
+subtype; the test bed can plant that world and check whether it matters
+at this separation.
+
+**Anticipate.** First, the continuum verdict is the likely one — most
+"subtype" structures in bulk expression have a proliferation or immune
+axis inside them — and the design treats "no stable discrete subtypes"
+as a *successful result* the report is pre-committed to publishing,
+because the alternative is a trial stratified on noise. Second, the
+rare subtype: a real 6% group will dissolve in bootstrap stability at
+this n (practice problem 12.2's arithmetic); the report must distinguish
+"unstable because unreal" from "unstable because rare," and the test bed
+is what can tell them apart. Third, site confounding that survives the
+sweep by aliasing with biology — two sites enrolling different stages —
+which no statistic untangles; the design flags aliased structure as
+undecidable rather than assigning it a winner. Fourth, the frozen
+pipeline: the discovery clustering, once used for arm assignment, is
+locked — new patients get *classified* to existing centers
+(@sec-naive-bayes's job), never re-clustered, or the arms drift under
+the trial's feet.
+
+**What to notice.** Stability promoted from diagnostic to deliverable;
+"no subtypes" pre-registered as a publishable answer; the pipeline's
+hallucination rate measured on planted worlds before its real answer is
+believed; and the soft posteriors handed to the committee — the course's
+first tool, still doing the honest work in its last design.
+
 ## When the model is wrong
+
+There is no held-out truth to be wrong against — that is the condition
+of the chapter — so the failures here are the method's confident answers
+on worlds where the *question* was wrong. All three executed; the last
+one is the book's closing figure on purpose.
+
+**First: bins are not kinds.** Run k-means on a world with no groups at
+all — @sec-pca's differentiation continuum, cells marching smoothly
+along a curve:
+
+```{python}
+#| fig-cap: "k-means, confidently partitioning a continuum. The colors are the method's; the smooth gradient is the world's."
+rng = np.random.default_rng(587)
+rows, progress = [], []
+for _ in range(300):
+    z = rng.uniform(-2, 2)
+    rows.append(np.array([z, z * z]) + rng.normal(0, 0.2, size=2))
+    progress.append(z)
+X_arc = np.array(rows)
+rng = np.random.default_rng(593)
+cent_arc, assign_arc = kmeans(X_arc, 3, rng)
+
+fig, ax = plt.subplots(figsize=(6.2, 3.2))
+for c in range(3):
+    in_c = (assign_arc == c)
+    ax.plot(X_arc[in_c, 0], X_arc[in_c, 1], ".", ms=5, color=group_colors[c])
+ax.plot(cent_arc[:, 0], cent_arc[:, 1], "x", color="#0b0b0b", ms=10, mew=2)
+ax.set_xlabel("PC1")
+ax.set_ylabel("PC2")
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+Three clean, colorable "cell types" — sizes 180, 48, 72 — on data whose
+only truth is a smooth coordinate. Nothing in the picture warns you: the
+boundaries are as crisp as the real mixture's were. The instruments that
+do warn you are the ones this act built: @sec-pca's latent reading (a
+horseshoe-shaped score plot says *coordinate*, not *kinds*), the gap
+statistic read against its null, and stability (the bins' boundaries
+slide along the continuum under resampling). Ask "how many groups?" of a
+world without groups and every clustering method returns a number
+anyway. The noun was the error.
+
+**Second: the distance is a modeling decision wearing a default's
+clothes.** k-means measures straight-line distance to a center, which
+quietly assumes groups are round. Give it two crescents — interlocking,
+perfectly separated, unmistakable to the eye:
+
+```{python}
+rng = np.random.default_rng(607)
+rows, which_moon = [], []
+for _ in range(300):
+    z = rng.uniform(-2, 2)
+    if rng.random() < 0.5:
+        rows.append(np.array([z, 0.8 * z * z]) + rng.normal(0, 0.15, size=2))
+        which_moon.append(0)
+    else:
+        rows.append(np.array([z + 0.8, 2.2 - 0.8 * z * z]) + rng.normal(0, 0.15, size=2))
+        which_moon.append(1)
+X_moons = np.array(rows)
+which_moon = np.array(which_moon)
+rng = np.random.default_rng(613)
+_, assign_moons = kmeans(X_moons, 2, rng)
+agree = 0
+for c in range(2):
+    in_c = (assign_moons == c)
+    agree += max((which_moon[in_c] == 0).sum(), (which_moon[in_c] == 1).sum())
+print("crescents, k = 2: agreement with the true moons:", agree, "of 300")
+```
+
+Two perfectly separated groups, and k-means recovers 202 of 300 — it
+slices *across* both crescents, because no placement of two round
+neighborhoods can trace a curved boundary. The failure is not a bug; it
+is the definition of "close" doing modeling work nobody signed off on.
+Methods that define closeness through neighbors (density- and
+graph-based clustering, the single-cell workhorses) trace the crescents
+easily — and inherit their own defaults in exchange. Every clustering
+smuggles in a shape through its distance; reading the method means
+finding the shape.
+
+**Third: the method's confidence is not the world's structure.** The
+last executed figure in this book. Three hundred cells of pure uniform
+noise; k-means, $k = 4$:
+
+```{python}
+#| fig-cap: "k-means, k = 4, on uniform noise: four tidy territories of nothing. The last figure of this book, and its thesis."
+rng = np.random.default_rng(599)
+rows = []
+for _ in range(300):
+    rows.append(np.array([rng.uniform(0, 5), rng.uniform(0, 5)]))
+X_noise = np.array(rows)
+rng = np.random.default_rng(601)
+cent_noise, assign_noise = kmeans(X_noise, 4, rng)
+
+fig, ax = plt.subplots(figsize=(5.8, 3.6))
+noise_colors = ["#2a78d6", "#eb6834", "#1baf7a", "#898781"]
+for c in range(4):
+    in_c = (assign_noise == c)
+    ax.plot(X_noise[in_c, 0], X_noise[in_c, 1], ".", ms=5, color=noise_colors[c])
+ax.plot(cent_noise[:, 0], cent_noise[:, 1], "x", color="#0b0b0b", ms=10, mew=2)
+ax.set_xlabel("PC1")
+ax.set_ylabel("PC2")
+ax.spines[["top", "right"]].set_visible(False)
+print("cluster sizes on pure noise:", (assign_noise == 0).sum(),
+      (assign_noise == 1).sum(), (assign_noise == 2).sum(), (assign_noise == 3).sum())
+plt.show()
+```
+
+Four territories, tidy sizes — 84, 73, 69, 74 — crisp boundaries, a
+publishable figure, of *nothing*. Every method in this book would have
+produced something equally fluent on inputs equally empty; what stood
+between you and believing such figures, all term, was never the method's
+output. It was the habit of building a world where the truth is known
+and watching what the method does there — the gap's null, the stability
+harness, the planted test bed, the structural checks, all of them
+descendants of week one's first ten lines. **A method's confidence is
+not the world's structure; the difference is only visible from inside a
+world you built.** That habit is the course; it is also the last thing
+this book has to teach. The synthesis project is yours to design — every
+operation on the schedule's table is now yours to compose.
+
 ## Practice problems
--->
+
+Ungraded, solutions worked. Do them before looking — one last time.
+
+### 12.1 · Predict the output {#sec-clustering-p1}
+
+Before running: k-means with $k = 3$ on the one-group world (300 cells,
+a single Normal blob). What do the three found groups look like, what
+does the within-scatter curve do, and which of this chapter's validators
+would catch it?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Three wedges of one blob, boundaries meeting near the middle — tidy,
+confident, and meaningless; the within-scatter still improves from
+$k = 1$ to 3 (it always does). Both honest validators catch it: the gap
+statistic peaks at $k = 1$ (splitting a blob buys no more tightness than
+splitting noise — the chapter's own $k=1$ test-bed run showed gap
+declining from 1.05 across $k$), and pair stability at $k = 3$ is poor,
+because the wedge boundaries land somewhere new on every resample. A
+blob resists nothing; that resistance-shaped hole is the signature.
+:::
+
+### 12.2 · Modify the story {#sec-clustering-p2}
+
+Shrink group 2's mixing proportion from 0.25 toward zero (rebalancing
+the other two) at fixed spread. Find, by experiment, roughly where the
+rare cell type stops being recoverable — and say which quantity fails
+first: the centers, the gap's choice of $k$, or the stability.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+```{python}
+rng = np.random.default_rng(617)
+for pi_rare in (0.15, 0.08, 0.04):
+    pi = [(1 - pi_rare) * 0.53, (1 - pi_rare) * 0.47, pi_rare]
+    truth_r, X_r = make_cells(300, pi, CENTERS, 0.7, rng)
+    cent_r, assign_r = kmeans(X_r, 3, rng)
+    sizes = []
+    for c in range(3):
+        sizes.append((assign_r == c).sum())
+    print(f"rare pi {pi_rare}: cluster sizes {sizes},"
+          f" rare cells in data: {(truth_r == 2).sum()}")
+```
+Down to about 8% the rare group keeps its own center. Around 4% —
+a dozen cells — some runs still find it and some spend the third center
+splitting a big group instead: the *stability* fails first (the answer
+depends on the restart and the resample), while the gap often still
+prefers $k = 3$ and the found centers, when found, sit correctly. That
+ordering is general: rarity shows up as instability before it shows up
+as error — which is exactly why the worked design refused to certify an
+arm on an unstable subtype without the test bed's "unreal versus rare"
+verdict.
+:::
+
+### 12.3 · Hand-calculate {#sec-clustering-p3}
+
+Six samples on one axis: 1, 2, 3, 8, 9, 10. Centers start at 2 and 3.
+Run one full k-means round by hand — assignments, new centers — and then
+say what the *next* round does.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Distances to (2, 3): samples 1 and 2 are closer to center A (sample 2
+ties at distance 0 to A... it *is* A's position; 1 is closer to A);
+sample 3 onward closer to B — assignments (A, A, B, B, B, B). New
+centers: mean(1, 2) = 1.5 and mean(3, 8, 9, 10) = 7.5. Next round:
+distances to (1.5, 7.5) reassign sample 3 to A (distance 1.5 versus
+4.5), giving (A, A, A, B, B, B), centers 2 and 9 — and the round after
+changes nothing, so `moved` goes false and the `while` ends. Two rounds
+from a terrible start to the obvious answer; the loop's stopping
+condition is the algorithm's whole definition of "done."
+:::
+
+### 12.4 · Spot the mismatch {#sec-clustering-p4}
+
+A preprint reports a "novel fourth subtype" (11% of tumors) from
+clustering 240 samples: clean silhouette figure, distinct marker genes,
+biological story attached. A skeptical lab reruns the pipeline on 50
+bootstrap resamples: the original three subtypes reappear in 49 of 50
+runs; the fourth appears in 11. The authors reply that its marker genes
+are statistically significant. Untangle it.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+The stability run is the verdict: a group that materializes in 22% of
+resamples is a property of this draw, not of the tissue — the original
+three are findings; the fourth is @sec-simulating-a-process's sampling
+variability wearing a subtype's name. The marker genes do not rescue it;
+they are circular: *any* partition of expression data, noise included,
+yields genes that differ between its own groups (the cluster was
+*defined* by expression — testing expression against it is
+direction-after-looking, @sec-repeat's oldest sin, at cohort scale).
+What would rescue it: recurrence in an independent cohort, or the rare-
+versus-unreal test-bed verdict at this n — 26 tumors of a real subtype
+can legitimately be hard to re-find, which is exactly why the claim
+needs more than one cohort's clustering.
+:::
+
+### 12.5 · Read the notation {#sec-clustering-p5}
+
+The final translation runs backward: *you* write the two lines. State
+the symmetry between $r_{ic} = P(\text{class } c \mid \text{cell } i)$
+in this chapter and the posterior of @sec-mix — what is identical, what
+changed, and what the change cost.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Identical: the arithmetic, symbol for symbol — prior (the mixing
+proportions) times likelihood (the component's density at the cell),
+normalized over classes. @sec-mix computed it by filtering simulated
+reads; `responsibilities` computes it with Normal components; the bar
+still reads "given." What changed: in week 4 the classes had names and
+training labels — the ingredients were *estimated from labeled data* —
+and here the classes are latent: the same formula runs on centers and
+proportions that had to be guessed from the unlabeled blend itself. The
+cost is everything this chapter was about: with labels, the posterior's
+ingredients were checkable; without them, the ingredients are themselves
+the clustering, so the posterior is only as real as the groups — which
+is why $k$ needed a null and a stability argument before any
+responsibility deserved belief. Same equation, twelve weeks apart; the
+difference between the two chapters is not mathematics but epistemics —
+which is the course, compressed to one sentence.
+:::

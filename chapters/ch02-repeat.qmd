@@ -3,9 +3,10 @@ id: repeat
 unit: 2
 act: I
 operation: "repeat"
-concepts: [null-distribution, p-value, multiple-testing, false-discovery, repeat-composition]
+concepts: [null-distribution, p-value, multiple-testing, false-discovery, repeat-composition, flat-p-histogram, direction-after-looking]
 prerequisites: [simulating-a-process, sampling-variability]
 notation_introduced: [p-value, expected-false-positives]
+constructs_introduced: [slicing, enumerate-positions, numpy-array, array-reductions, rng-distribution-draws]
 misconceptions:
   - "A small p-value means the effect is real."
   - "If each test is honest, the list of significant results is honest."
@@ -82,12 +83,32 @@ many sites?* Whatever that world produces, her data must beat.
 
 ## The story, as code
 
-One site's group difference, then 1,200 of them. The inner function is @sec-simulating-a-process
-compressed to its built-in form.
+Repeating last chapter's story two thousand times per site, across 1,200 sites, is where the
+pieces you hand-built earn their power tools. Three arrivals, each the one-call form of
+something you already own:
 
 ```{python}
 import numpy as np
 
+values = [0.6, 0.7, 0.5, 0.7]
+arr = np.array(values)             # a list, upgraded: arithmetic acts on all of it at once
+print(arr / 2)
+print(arr.mean(), arr.std())       # chapter 1's average() and spread(), as built-ins
+rng = np.random.default_rng(7)
+print(rng.binomial(80, 0.65, 5))   # five sequencing runs in one call
+```
+
+`np.array` turns a list into an **array**, and arithmetic on an array touches every element
+with no loop. The **reductions** `.mean()`, `.std()`, and `.sum()` collapse an array to one
+number — exactly what `average()` and `spread()` did in @sec-simulating-a-process, now at
+machine speed. And `rng.binomial(n, m, size)` runs the per-read loop you wrote there as a
+single call, one whole experiment per draw. Nothing new happens statistically; the same worlds
+run faster, which is what this unit's operation demands.
+
+One site's group difference, then 1,200 of them. The inner function is @sec-simulating-a-process
+compressed to its built-in form.
+
+```{python}
 def group_fraction(m, n_samples, n_reads, rng):
     """Average observed methylation across one group's samples."""
     counts = rng.binomial(n_reads, m, n_samples)   # one methylated-read count per sample
