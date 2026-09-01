@@ -3,9 +3,10 @@ id: repeat
 week: 2
 act: I
 operation: "repeat"
-concepts: [null-distribution, p-value, multiple-testing, false-discovery, repeat-composition]
+concepts: [null-distribution, p-value, multiple-testing, false-discovery, repeat-composition, flat-p-histogram, direction-after-looking]
 prerequisites: [simulating-a-process, sampling-variability]
 notation_introduced: [p-value, expected-false-positives]
+constructs_introduced: [slicing, enumerate-positions]
 misconceptions:
   - "A small p-value means the effect is real."
   - "If each test is honest, the list of significant results is honest."

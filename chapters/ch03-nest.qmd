@@ -3,9 +3,10 @@ id: nest
 week: 3
 act: I
 operation: "nest"
-concepts: [nesting, overdispersion, beta-binomial, variance-as-diagnostic, intraclass-correlation]
+concepts: [nesting, overdispersion, beta-binomial, variance-as-diagnostic, intraclass-correlation, gamma-poisson-contract, calibrated-rule-wrong-world, two-state-layer, box-register, hidden-layer-inferred]
 prerequisites: [simulating-a-process, sampling-variability, null-distribution, p-value]
 notation_introduced: [conditional-bar, beta-mean-concentration, total-variance-decomposition, intraclass-correlation-rho]
+constructs_introduced: [argmin-argmax]
 misconceptions:
   - "If the mean of the simulation matches the data, the simulation is right."
   - "Deeper sequencing will average away day-to-day biological variability."
