@@ -2,28 +2,838 @@
 id: evaluation
 unit: 6
 act: II
-operation: ""
-concepts: []
-prerequisites: []
-notation_introduced: []
-misconceptions: []
-practice_problems: []
+operation: "repeat"
+concepts: [held-out-discipline, cv-knob-tuning, leakage, permutation-null, calibration, evaluation-is-all-you-have]
+prerequisites: [trained-classifier, overconfident-posteriors, repeat-composition, direction-after-looking, truth-as-input, calibrated-rule-wrong-world]
+notation_introduced: [train-test-split, generalization-gap, sensitivity-specificity-ppv, k-fold-notation]
+constructs_introduced: [indexing-2d, shape-attribute, axis-keyword, argsort]
+misconceptions:
+  - "A high accuracy means a good classifier."
+  - "Cross-validation protects a pipeline from leakage."
+  - "The training score is close enough when the model is simple."
+practice_problems:
+  - id: eval-1
+    kind: predict-the-output
+    objective: >
+      Predict how the spread of a performance estimate changes between one
+      split and five folds — before running the comparison.
+    probes: cv-knob-tuning
+    solution: worked
+  - id: eval-2
+    kind: modify-the-story
+    objective: >
+      Repair a leaky pipeline by moving one step, and say why the score
+      drops when the code gets more honest.
+    probes: leakage
+    solution: worked
+  - id: eval-3
+    kind: hand-calculate
+    objective: >
+      Compute sensitivity, specificity, and PPV from a confusion table by
+      hand, and watch PPV collapse under imbalance while the other two hold.
+    probes: held-out-discipline
+    solution: worked
+  - id: eval-4
+    kind: spot-the-mismatch
+    objective: >
+      Find the leak in a pipeline where every individual step looks correct.
+    probes: leakage
+    solution: worked
+  - id: eval-5
+    kind: read-the-notation
+    objective: >
+      Translate k-fold notation into the loop it abbreviates, naming what is
+      recomputed per fold and what must never be.
+    probes: cv-knob-tuning
+    solution: worked
 ---
 
 # Did it actually work? Evaluation and generalization {#sec-evaluation}
 
-> **Under construction.**
-
-*The question this chapter answers:* **Does the classifier actually work, or does it just look like it does?**
-
-<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
 ## The problem
+
+Your rRNA filter from @sec-naive-bayes is a success. On the reads used to
+build it, it calls 94% correctly, and the core facility two floors down —
+which processes everyone's libraries — wants to put it in their standard
+pipeline.
+
+A colleague asks one question before signing off: **"on which reads did you
+measure that?"**
+
+This chapter is the anatomy of that question. It sounds procedural. It is
+not: it is the difference between a number that describes your classifier
+and a number that describes *your classifier's memory of one particular
+dataset*. The tools are few — a split, a loop over splits, a handful of
+ratios, one diagnostic plot — but each exists because of a specific,
+demonstrable way that a good-looking number gets manufactured. You will
+manufacture each one yourself, on purpose, in a world where the truth is
+known — because the honest number is also sitting there to compare against.
+
 ## The story
+
+There is no new biology this week. The process being modeled is the
+**measurement of performance itself**: a model is built from one draw of the
+world and will be used on another draw. Both draws come from the same
+process, but they are not the same data — and anything the model absorbed
+about the *particular* reads it saw, rather than about the process that
+generates reads, is worthless on the next draw. Learning the process is
+called generalization; absorbing the draw is called **overfitting**, or
+memorization when done with intent.
+
+The story, then, has two characters. One is a model that learns the process.
+The other is a model that learns the data. On the training draw they are
+indistinguishable — that is the trap — and on a fresh draw they part company.
+Everything in this chapter is machinery for making them part company *before*
+deployment does it for you.
+
 ## The story, as code
+
+The reads of @sec-naive-bayes, rebuilt — but organized the way every dataset
+from here to the end of the book will be: **a table, one row per read, one
+column per k-mer.**
+
+```{python}
+import numpy as np
+
+rng = np.random.default_rng(61)
+p_kmer = {"rRNA":  rng.uniform(0.15, 0.85, size=20),
+          "other": rng.uniform(0.15, 0.85, size=20)}
+
+def one_read(pi_rrna, p_kmer, rng):
+    if rng.random() < pi_rrna:
+        label = "rRNA"
+    else:
+        label = "other"
+    present = rng.random(20) < p_kmer[label]
+    return label, present
+
+def make_reads(n_reads, pi_rrna, p_kmer, rng):
+    """A dataset: reads as rows of a matrix, labels alongside."""
+    label_list, rows = [], []
+    for _ in range(n_reads):
+        label, present = one_read(pi_rrna, p_kmer, rng)
+        label_list.append(label)
+        rows.append(present)
+    return np.array(rows), np.array(label_list)
+
+rng = np.random.default_rng(107)
+X_train, y_train = make_reads(2000, 0.15, p_kmer, rng)
+print(X_train[:3].astype(int))
+print("rows and columns:", X_train.shape)
+```
+
+Three new pieces of reading, each worth one sentence. `X_train.shape` reports
+the table's dimensions — 2,000 rows, 20 columns — and from now on it is the
+first thing to ask of any array, because **tracing shapes is how you read
+array code** the way tracing values was how you read loops.
+`X_train[0, :]` is row 0 (one read, all its k-mers); `X_train[:, 3]` is
+column 3 (one k-mer, across all reads) — row first, column second, a bare
+colon meaning *all of them*. And a reduction on a table needs a direction:
+
+```{python}
+print("k-mer 3, share of reads containing it:", X_train[:, 3].mean().round(3))
+print("every k-mer at once:", X_train.mean(axis=0)[:4].round(2), "...")
+```
+
+`axis=0` runs down the rows and returns one answer per column — twenty
+presence rates from one line. The counting rule that keeps `axis=` readable:
+**the axis you name is the one that disappears.** Name axis 0 and the 2,000
+rows collapse; twenty numbers remain, one per column.
+
+Now the two characters. The honest one is naive Bayes, retrained here on the
+table form:
+
+```{python}
+def likelihood(present, probs):
+    like = 1.0
+    for k in range(len(probs)):
+        if present[k]:
+            like = like * probs[k]
+        else:
+            like = like * (1 - probs[k])
+    return like
+
+def train_presence(X, y, class_name):
+    """Pseudocounted per-k-mer presence rates for one class."""
+    is_class = (y == class_name)
+    n_class = is_class.sum()
+    probs = []
+    for k in range(X.shape[1]):
+        column = X[:, k]
+        probs.append((column[is_class].sum() + 1) / (n_class + 2))
+    return np.array(probs), n_class
+```
+
+```{python}
+def nb_posterior(read, table_rrna, table_other, prior_rrna):
+    score_r = likelihood(read, table_rrna) * prior_rrna
+    score_o = likelihood(read, table_other) * (1 - prior_rrna)
+    return score_r / (score_r + score_o)
+
+def nb_accuracy(X, y, table_rrna, table_other, prior_rrna):
+    correct = 0
+    for read, truth in zip(X, y):
+        if nb_posterior(read, table_rrna, table_other, prior_rrna) >= 0.5:
+            call = "rRNA"
+        else:
+            call = "other"
+        if call == truth:
+            correct += 1
+    return correct / len(y)
+
+table_rrna, n_rrna = train_presence(X_train, y_train, "rRNA")
+table_other, n_other = train_presence(X_train, y_train, "other")
+prior_rrna = n_rrna / len(y_train)
+```
+
+The other character learns the data. It is @sec-mix's filtering move, worn
+as a classifier: to call a read, look it up among the training reads and
+copy the label of its exact matches.
+
+```{python}
+def memorizer(read, X_train, y_train):
+    """Classify by exact lookup among the training reads."""
+    agreements = (X_train == read).sum(axis=1)   # compares the read against
+    exact = (agreements == 20)                   #   every row at once
+    if exact.sum() == 0:
+        return "other"                           # never seen it: majority guess
+    from_rrna = (y_train[exact] == "rRNA")
+    if from_rrna.mean() >= 0.5:
+        return "rRNA"
+    return "other"
+
+def memorizer_accuracy(X, y, X_train, y_train):
+    correct = 0
+    for read, truth in zip(X, y):
+        if memorizer(read, X_train, y_train) == truth:
+            correct += 1
+    return correct / len(y)
+```
+
+Score both, twice — once on the reads they were built from, once on a fresh
+draw of the same world:
+
+```{python}
+rng = np.random.default_rng(109)
+X_fresh, y_fresh = make_reads(2000, 0.15, p_kmer, rng)
+
+print("            on training reads   on fresh reads")
+print(f"memorizer        {memorizer_accuracy(X_train, y_train, X_train, y_train):.3f}"
+      f"             {memorizer_accuracy(X_fresh, y_fresh, X_train, y_train):.3f}")
+print(f"naive Bayes      {nb_accuracy(X_train, y_train, table_rrna, table_other, prior_rrna):.3f}"
+      f"             {nb_accuracy(X_fresh, y_fresh, table_rrna, table_other, prior_rrna):.3f}")
+print(f"share of 'other' in the fresh draw: {(y_fresh == 'other').mean():.3f}")
+```
+
+Read the table twice. On training reads, the memorizer is *perfect* — of
+course it is; every read matches itself. On fresh reads it collapses to
+0.854, which is exactly the share of "other" in the draw: nothing it
+memorized transfers, so all that remains is its majority-guess fallback. It
+learned the data, and the data left. Naive Bayes posts 0.937 and 0.938 —
+the same number twice, because twenty presence rates estimated from two
+thousand reads *are* the process, near enough, and the process came along
+to the fresh draw.
+
+The difference between a model's training score and its fresh score is the
+**generalization gap**, and it is the object this chapter studies. The
+memorizer's gap is 0.146. Naive Bayes's is zero. A training score, by
+itself, cannot tell you which kind of model you are holding — a 1.000 was
+sitting right next to an honest 0.937 and looked better.
+
 ## Playing with the story
+
+You will not usually have a fresh world on tap — that is the whole
+predicament — so the field's move is to *make* one: hold back a slice of
+the data the model never sees, and let that slice impersonate the future.
+Split once and you get one number; but a single held-out slice is one draw
+of a random quantity, and you know from @sec-simulating-a-process what one
+draw is worth. So repeat it: cut the data into $k$ slices — **folds** — and
+let each take a turn as the held-out set. That is **cross-validation**, and
+it is @sec-repeat's operation applied to evaluation itself: same move, new
+target.
+
+```{python}
+def five_fold_scores(X, y):
+    """Five held-out accuracies: each fold takes one turn as the test set."""
+    fold_list = []
+    fold = 0
+    for _ in range(len(y)):
+        fold_list.append(fold)
+        fold += 1
+        if fold == 5:
+            fold = 0
+    fold_id = np.array(fold_list)
+    scores = []
+    for k in range(5):
+        in_test = (fold_id == k)
+        in_train = (fold_id != k)
+        t_r, _ = train_presence(X[in_train], y[in_train], "rRNA")
+        t_o, _ = train_presence(X[in_train], y[in_train], "other")
+        prior = (y[in_train] == "rRNA").mean()
+        scores.append(nb_accuracy(X[in_test], y[in_test], t_r, t_o, prior))
+    return np.array(scores)
+
+scores = five_fold_scores(X_train, y_train)
+print("fold scores:", scores.round(3))
+print(f"mean {scores.mean():.3f}   sd {scores.std():.3f}")
+```
+
+Note what the fold loop retrains: *everything* — tables and prior — from
+only that fold's training rows. The held-out rows touch nothing. That
+discipline, not the arithmetic, is what the last section of this chapter is
+about.
+
+Because this is a simulation, one more move is available that real data
+never offers: grade the evaluation procedures themselves. Train on a draw,
+then measure the model's *true* accuracy on an enormous fresh draw — the
+answer sheet — and ask how close each procedure's estimate came:
+
+```{python}
+rng = np.random.default_rng(113)
+err_train, err_split, err_cv = [], [], []
+for _ in range(40):
+    X, y = make_reads(800, 0.15, p_kmer, rng)
+    t_r, _ = train_presence(X, y, "rRNA")
+    t_o, _ = train_presence(X, y, "other")
+    prior = (y == "rRNA").mean()
+    X_big, y_big = make_reads(3000, 0.15, p_kmer, rng)
+    true_acc = nb_accuracy(X_big, y_big, t_r, t_o, prior)
+    err_train.append(nb_accuracy(X, y, t_r, t_o, prior) - true_acc)
+    t2_r, _ = train_presence(X[:600], y[:600], "rRNA")
+    t2_o, _ = train_presence(X[:600], y[:600], "other")
+    prior2 = (y[:600] == "rRNA").mean()
+    err_split.append(nb_accuracy(X[600:], y[600:], t2_r, t2_o, prior2) - true_acc)
+    err_cv.append(five_fold_scores(X, y).mean() - true_acc)
+for name, errors in [("training score", err_train),
+                     ("one 600/200 split", err_split),
+                     ("5-fold CV", err_cv)]:
+    e = np.array(errors)
+    print(f"{name:>18}: error {e.mean():+.3f} ± {e.std():.3f}")
+```
+
+Three lessons in three rows. The training score runs optimistic — mildly,
+here, because naive Bayes has only twenty-odd numbers to memorize with; give
+a model more capacity and that $+0.004$ grows without bound (the memorizer's
+was $+0.146$). The single split is unbiased but noisy — its estimate wanders
+nearly twice as far as CV's, because it is one draw where CV averages five.
+And five-fold CV is both centered and steadiest, which is why it is the
+default answer to *"on which reads did you measure that?"* for everything
+the rest of this book fits.
+
 ## Where the numbers come from
+
+Accuracy is one number about a table with four cells. For a deployed filter
+the four cells have names, and different mistakes bill differently — a
+discarded good read is not the same loss as a kept rRNA read:
+
+```{python}
+tp = fp = tn = fn = 0
+for read, truth in zip(X_fresh, y_fresh):
+    called_rrna = (nb_posterior(read, table_rrna, table_other, prior_rrna) >= 0.5)
+    if called_rrna and truth == "rRNA":
+        tp += 1
+    elif called_rrna and truth == "other":
+        fp += 1
+    elif truth == "rRNA":
+        fn += 1
+    else:
+        tn += 1
+print(f"                called rRNA   called other")
+print(f"truly rRNA        {tp:>5}          {fn:>5}")
+print(f"truly other       {fp:>5}          {tn:>5}")
+print(f"sensitivity {tp/(tp+fn):.2f}   specificity {tn/(tn+fp):.2f}   PPV {tp/(tp+fp):.2f}")
+```
+
+**Sensitivity**: of the truly rRNA reads, the share caught — 0.72, meaning
+this filter, at this threshold, lets more than a quarter of its target slip
+through. **Specificity**: of the good reads, the share correctly kept —
+0.98. **PPV** (positive predictive value): of the reads *called* rRNA, the
+share that really are — 0.83. The same classifier that reports 94% accuracy
+is hiding a 0.72 in its sensitivity row, because accuracy averages the cells
+by their sizes, and the class you care about is the small one.
+
+Push that to its limit. In a well-depleted library rRNA is 1% of reads, and
+accuracy stops meaning anything at all:
+
+```{python}
+rng = np.random.default_rng(127)
+X_a, y_a = make_reads(2000, 0.01, p_kmer, rng)   # train world, 1% rRNA
+X_b, y_b = make_reads(2000, 0.01, p_kmer, rng)   # fresh eval world
+print("accuracy of always answering 'other':", (y_b == "other").mean())
+
+t_r, _ = train_presence(X_a, y_a, "rRNA")
+t_o, _ = train_presence(X_a, y_a, "other")
+prior = (y_a == "rRNA").mean()
+tp = fn = 0
+for read, truth in zip(X_b, y_b):
+    if truth == "rRNA":
+        if nb_posterior(read, t_r, t_o, prior) >= 0.5:
+            tp += 1
+        else:
+            fn += 1
+print(f"trained filter: accuracy {nb_accuracy(X_b, y_b, t_r, t_o, prior):.4f},"
+      f" but catches {tp} of {tp+fn} rRNA reads")
+```
+
+A rock that answers "other" scores 98.65%. The trained filter scores 98.85%
+— *better than the rock, numerically* — while catching 5 of the 27 reads it
+exists to catch. At real imbalance, report the confusion table's rows, never
+their average; a single accuracy on imbalanced classes is how a useless
+tool passes review.
+
+The threshold 0.5 was also a choice, and the sensitivity/specificity pair
+moves as you slide it — catch more rRNA by accepting more false alarms.
+The standard picture of that trade:
+
+```{python}
+#| fig-cap: "The threshold trade on fresh reads: each point is one cutoff. The marked point is the 0.5 threshold used above."
+import matplotlib.pyplot as plt
+
+posteriors, is_rrna_list = [], []
+for read, truth in zip(X_fresh, y_fresh):
+    posteriors.append(nb_posterior(read, table_rrna, table_other, prior_rrna))
+    is_rrna_list.append(truth == "rRNA")
+posteriors = np.array(posteriors)
+is_rrna = np.array(is_rrna_list)
+
+fig, ax = plt.subplots(figsize=(4.6, 4.2))
+for cut in np.arange(0.05, 1.0, 0.05):
+    called = (posteriors >= cut)
+    sens = (called[is_rrna]).mean()
+    false_alarm = (called[is_rrna == False]).mean()   # 1 - specificity
+    color = "#eb6834" if abs(cut - 0.5) < 0.01 else "#2a78d6"
+    ax.plot(false_alarm, sens, "o", color=color, ms=6)
+ax.plot([0, 1], [0, 1], ls=":", color="#898781", lw=1)
+ax.set_xlabel("false-alarm rate (1 − specificity)")
+ax.set_ylabel("sensitivity")
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+The dotted diagonal is a coin; distance above it is discrimination. One
+curve is worth looking at; compressing it to a single number invites
+ranking classifiers by a summary of thresholds you will never use, so this
+book reports the operating point instead and shows the curve once.
+
+The last measurement is the one @sec-naive-bayes made necessary. The
+posteriors of a naive model *decide* well and *promise* badly — so measure
+the promises. Collect predictions into bins by claimed confidence; within
+each bin, count how often the claim came true. That comparison is called
+**calibration**:
+
+```{python}
+def calibration_table(posteriors, truths):
+    rows = []
+    for low in (0.0, 0.2, 0.4, 0.6, 0.8):
+        in_bin = (posteriors >= low) & (posteriors < low + 0.2)
+        if in_bin.sum() > 0:
+            claimed = posteriors[in_bin].mean()
+            observed = (truths[in_bin] == "rRNA").mean()
+            rows.append((claimed, observed, in_bin.sum()))
+    return rows
+
+print("honest world:   claimed -> observed")
+for claimed, observed, n in calibration_table(posteriors, y_fresh):
+    print(f"   {claimed:.2f} -> {observed:.2f}   (n={n})")
+```
+
+Claimed 0.93, observed 0.92; claimed 0.02, observed 0.03. When the model's
+independence assumption matches its world, the posteriors keep their
+promises. Now the world from @sec-naive-bayes's failure section — ten real
+k-mers, each reported twice — where the assumption is violated by
+construction:
+
+```{python}
+def one_read_doubled(pi_rrna, p_kmer, rng):
+    if rng.random() < pi_rrna:
+        label = "rRNA"
+    else:
+        label = "other"
+    coins = rng.random(10) < p_kmer[label][:10]
+    present = []
+    for c in coins:
+        present.append(c)
+    for c in coins:
+        present.append(c)
+    return label, np.array(present)
+
+rng = np.random.default_rng(131)
+rows, labs = [], []
+for _ in range(2000):
+    label, present = one_read_doubled(0.15, p_kmer, rng)
+    rows.append(present)
+    labs.append(label)
+X_dbl, y_dbl = np.array(rows), np.array(labs)
+```
+
+```{python}
+#| fig-cap: "Calibration: claimed confidence against delivered frequency. The honest world hugs the diagonal; the correlated world promises 0.94 and delivers 0.68."
+d_r, _ = train_presence(X_dbl, y_dbl, "rRNA")
+d_o, _ = train_presence(X_dbl, y_dbl, "other")
+d_prior = (y_dbl == "rRNA").mean()
+
+rng = np.random.default_rng(137)
+rows, labs = [], []
+for _ in range(2000):
+    label, present = one_read_doubled(0.15, p_kmer, rng)
+    rows.append(present)
+    labs.append(label)
+X_dbl2, y_dbl2 = np.array(rows), np.array(labs)
+d_posts = []
+for read in X_dbl2:
+    d_posts.append(nb_posterior(read, d_r, d_o, d_prior))
+d_posts = np.array(d_posts)
+
+fig, ax = plt.subplots(figsize=(4.6, 4.2))
+for table, color, name in [(calibration_table(posteriors, y_fresh), "#2a78d6", "honest world"),
+                           (calibration_table(d_posts, y_dbl2), "#eb6834", "correlated world")]:
+    claimed_list, observed_list = [], []
+    for claimed, observed, n in table:
+        claimed_list.append(claimed)
+        observed_list.append(observed)
+    ax.plot(claimed_list, observed_list, "o-", color=color, lw=2, label=name)
+ax.plot([0, 1], [0, 1], ls=":", color="#898781", lw=1)
+ax.set_xlabel("claimed P(rRNA)")
+ax.set_ylabel("observed frequency of rRNA")
+ax.legend(frameon=False)
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+The orange curve sags below the diagonal everywhere above 0.5: every
+confident promise over-delivers on enthusiasm and under-delivers on truth —
+claimed 0.94, observed 0.68. This plot is the instrument that catches
+@sec-naive-bayes's disease, and it needs no access to the model's insides:
+predictions and outcomes are enough. When a tool hands you probabilities,
+this is the picture to demand before believing them.
+
 ## The notation
+
+Light week. A dataset splits into $\mathcal{D}_{\text{train}}$ and
+$\mathcal{D}_{\text{test}}$; a score measured on each gives the
+**generalization gap**
+$\text{acc}_{\text{train}} - \text{acc}_{\text{test}}$. In $k$-fold
+cross-validation the data is cut into folds $F_1, \dots, F_k$ and the
+reported score is
+
+$$
+\text{CV} \;=\; \frac{1}{k}\sum_{j=1}^{k} \text{acc}\!\left(\,\text{model trained on } \mathcal{D} \setminus F_j,\ \text{scored on } F_j\right)
+$$
+
+$\mathcal{D} \setminus F_j$ reads "the data *without* fold $j$" — and the
+formula's whole content is the discipline you already coded: everything
+trained inside the sum sees only its own $\mathcal{D} \setminus F_j$. The
+confusion-table ratios enter the decoder as working vocabulary:
+sensitivity $tp/(tp+fn)$, specificity $tn/(tn+fp)$, PPV $tp/(tp+fp)$.
+
 ## A worked design
+
+> **The problem.** A published cell-type classifier for single-cell RNA-seq
+> — trained by another lab, on another instrument, in another tissue atlas —
+> is a candidate for your core facility's standard pipeline. Retraining is
+> off the table: the authors ship fixed weights, and the facility wants a
+> yes/no with evidence. Design the evaluation.
+
+**Frame.** Nothing is being fit; the unknown is a *number* — this tool's
+performance on *our* distribution — and the entire risk is @sec-nest's
+sentence: a rule calibrated in one world, applied to another. Their world
+and ours differ in instrument chemistry, tissue mix, and depth, so their
+reported accuracy is a fact about their world, not a promise about ours.
+The design's product is an estimate of performance-here, with the
+distribution shift measured rather than hoped away. Labels are the
+bottleneck: we have no ground truth for our own cells, which is the honest
+central difficulty — and buying a small amount of truth is the design.
+
+**Decompose.** (1) A labeled anchor set: a few hundred of our cells
+annotated by two independent human experts, disagreements adjudicated —
+expensive, small, and the only thing here that deserves the word truth.
+(2) Overall and per-class sensitivity on that anchor set — per-class,
+because a cell-type mix is imbalance incarnate and the rare types are why
+the facility wants automation at all. (3) Calibration of the tool's
+reported confidences against the anchor labels — the diagonal plot decides
+whether its confidence field is usable or must be stripped from reports.
+(4) A shift probe: score the tool's confidence distribution on our full
+data versus their published one; a tool that is much less confident on our
+cells is telling us it has left home. (5) The acceptance rule, written
+before measuring: what per-class sensitivity, at what calibration, clears
+the bar — decided now, so the bar cannot drift toward whatever the tool
+happens to score.
+
+**Select.** Fixed-weights evaluation against a human-labeled anchor, with
+per-class reporting and a calibration audit. The rejected alternative is
+the popular one: score the tool by its agreement with another published
+classifier — cheap, label-free, and it measures the wrong thing, because
+two tools can share a training-world bias and agree confidently in error.
+Agreement data is worth collecting as a *triage* signal (where two tools
+disagree is where anchor labels buy the most information per cell), but it
+cannot be the verdict. I concede the anchor set is small and its confidence
+intervals will be wide; wide honest intervals beat narrow borrowed ones.
+
+**Anticipate.** First, anchor contamination: if the experts see the tool's
+calls while labeling, the evaluation measures agreement with the tool —
+blind the labeling. Second, the rare-class trap: a 300-cell anchor may
+contain three cells of a rare type, and a sensitivity of 2/3 on that class
+is a coin flip wearing a fraction; report counts, not just rates. Third,
+drift after adoption: the facility's chemistry updates quarterly, and each
+update reopens the distribution-shift question — the anchor evaluation is
+a standing procedure with a re-run trigger, not a one-time gate. Fourth,
+the tool's confidence may be uncalibrated but its *ranking* still useful
+(@sec-naive-bayes's exact signature) — in which case the pipeline may keep
+the calls, drop the probabilities, and route low-confidence cells to a
+human, which is a smaller yes than the facility asked for and might be the
+right one.
+
+**What to notice.** The design buys a small amount of truth rather than a
+large amount of agreement; every metric is per-class because the mix is
+imbalanced; the acceptance bar is set before the measurement; and the
+evaluation is a repeating procedure tied to upstream change, not a
+ceremony performed once at adoption.
+
 ## When the model is wrong
+
+This chapter's failures are not in the classifier. They are in the
+*protocol* — ways of arranging honest steps into a dishonest measurement.
+Each one below produced a great number from nothing, in code where every
+individual line is correct.
+
+**First, the executed classic: selection before the split.** Sixty samples,
+1,500 features of pure noise, balanced labels — a world where the true
+attainable accuracy is a coin flip, and we know it because we built it.
+The pipeline: keep the 20 features most separated between the groups, then
+train and evaluate with a clean split:
+
+```{python}
+rng = np.random.default_rng(191)
+noise_rows, label_list = [], []
+for _ in range(60):
+    noise_rows.append(rng.random(1500) < 0.5)
+    if rng.random() < 0.5:
+        label_list.append("case")
+    else:
+        label_list.append("control")
+X_noise = np.array(noise_rows)
+y_noise = np.array(label_list)
+
+def top_columns(X, y, how_many):
+    """Positions of the columns most separated between the two groups."""
+    is_case = (y == "case")
+    is_control = (y == "control")
+    gaps = []
+    for j in range(X.shape[1]):
+        column = X[:, j]
+        gaps.append(np.abs(column[is_case].mean() - column[is_control].mean()))
+    order = np.argsort(np.array(gaps))     # positions, worst separation first
+    return order[len(order) - how_many:]   # the last 20: the best separated
+```
+
+`np.argsort` is the last new construct of the chapter: it returns the
+**positions** that would sort the array — a ranking, kin to the `argmax`
+you met in @sec-nest — and slicing its tail takes the top of that ranking.
+
+```{python}
+def split_accuracy(X, y):
+    """Train a two-class NB on the first half, score on the second."""
+    X_tr, y_tr = X[:30], y[:30]
+    X_te, y_te = X[30:], y[30:]
+    in_case = (y_tr == "case")
+    p_case, p_ctrl = [], []
+    for j in range(X.shape[1]):
+        column = X_tr[:, j]
+        p_case.append((column[in_case].sum() + 1) / (in_case.sum() + 2))
+        p_ctrl.append((column[in_case == False].sum() + 1)
+                      / ((in_case == False).sum() + 2))
+    p_case, p_ctrl = np.array(p_case), np.array(p_ctrl)
+    prior_case = in_case.mean()
+    correct = 0
+    for row, truth in zip(X_te, y_te):
+        score_case = likelihood(row, p_case) * prior_case
+        score_ctrl = likelihood(row, p_ctrl) * (1 - prior_case)
+        if score_case >= score_ctrl:
+            call = "case"
+        else:
+            call = "control"
+        if call == truth:
+            correct += 1
+    return correct / len(y_te)
+
+selected = top_columns(X_noise, y_noise, 20)         # selection saw ALL 60 samples
+print("leaky pipeline, held-out accuracy:", round(split_accuracy(X_noise[:, selected], y_noise), 2))
+
+honest_cols = top_columns(X_noise[:30], y_noise[:30], 20)   # selection saw training half only
+print("honest pipeline, held-out accuracy:", round(split_accuracy(X_noise[:, honest_cols], y_noise), 2))
+```
+
+**0.97 on pure noise.** The split was clean; the training was clean; the
+selection was the leak. Choosing the 20 most separated columns *using all
+sixty samples* let the held-out half vote on which features exist, and with
+1,500 noise columns to choose from, twenty will separate any labeling of
+sixty points beautifully — including this meaningless one. Move the
+selection inside the training half — one line — and the same machinery
+reports 0.47: a coin flip, the truth. This is **leakage**:
+any computation that touches the held-out data before evaluation, however
+innocent — feature selection, normalization statistics, threshold choice —
+quietly converts test data into training data. And wrapping the leaky
+version in five-fold CV would not have helped: the selection had already
+seen every fold.
+
+Suppose you inherit such a pipeline and cannot see the leak. There is an
+instrument that finds manufactured scores without reading the code: **give
+the pipeline labels that mean nothing and see what it scores.** Shuffle the
+labels — a random reordering, built here from `argsort` on random keys —
+and rerun everything, selection included:
+
+```{python}
+rng = np.random.default_rng(157)
+null_scores = []
+for _ in range(15):
+    shuffle = np.argsort(rng.random(60))    # a random ordering of positions
+    y_null = y_noise[shuffle]               # the same labels, dealt to random rows
+    cols = top_columns(X_noise, y_null, 20)
+    null_scores.append(split_accuracy(X_noise[:, cols], y_null))
+null_scores = np.array(null_scores)
+print("the leaky pipeline, on meaningless labels:", null_scores.round(2))
+print(f"mean {null_scores.mean():.2f}")
+```
+
+Labels dealt at random — no relationship to the features survives, by
+construction — and the pipeline scores 0.92 on average, reaching as high as 0.97. Its real-label score of 0.97 now reads correctly: *this
+pipeline produces 0.9-and-up for anything*, so its 0.97 contains no
+evidence at all. This is the **permutation null**: @sec-repeat's null
+distribution, rebuilt for a world with no generative story to simulate —
+you cannot write the process that produced someone's pipeline, but you can
+always deal its labels at random and watch what it awards itself. It is
+the one null that travels everywhere, and it will be load-bearing for the
+rest of the book.
+
+**Second, reuse: the test set you consult twice is training data.** Tune a
+threshold on the held-out slice, peek at the score, adjust a feature list,
+peek again — each look leaks a little, and after twenty adjustments the
+"held-out" score is a fit to the test set, arrived at by hand. This is
+@sec-repeat's direction-after-looking with evaluation for a victim: the
+data that chose the method cannot also grade it. The repair is structural,
+not moral — a final test set that is consulted once, after every decision
+is frozen, and a development set that absorbs all the peeking.
+
+**Third, the world moves.** Train the rRNA filter on one library prep;
+deploy it on a batch where an adapter artifact adds spurious k-mer hits to
+every read:
+
+```{python}
+strength = 0.4
+p_prepB = {"rRNA":  p_kmer["rRNA"] + (1 - p_kmer["rRNA"]) * strength,
+           "other": p_kmer["other"] + (1 - p_kmer["other"]) * strength}
+rng = np.random.default_rng(151)
+X_shift, y_shift = make_reads(2000, 0.15, p_prepB, rng)
+print("accuracy on its own prep:  ",
+      round(nb_accuracy(X_fresh, y_fresh, table_rrna, table_other, prior_rrna), 3))
+print("accuracy on the new prep:  ",
+      round(nb_accuracy(X_shift, y_shift, table_rrna, table_other, prior_rrna), 3))
+```
+
+From 0.938 to 0.844, and nothing announced it: no error, no warning, a
+plausible-looking accuracy — just one read in six now wrong, in production.
+Every number this chapter taught you to compute is a property of *a model
+and a distribution together*. Held-out data protects you from your model's
+memory; it cannot protect you from the world changing between measurement
+and use, because the held-out slice came from the old world too. The
+defenses are @sec-nest's: know which quantities your rule assumed fixed,
+and monitor them where they can drift.
+
 ## Practice problems
--->
+
+Ungraded, solutions worked. Do them before looking.
+
+### 6.1 · Predict the output {#sec-evaluation-p1}
+
+The evaluator-grading chunk reported three error columns. Before rerunning
+it with a 300/100 split instead of 600/200: which of the three numbers
+change materially, in which direction, and why? Then edit and run.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+The one-split row's *spread* grows — its test slice drops from 200 reads to
+100, and an accuracy estimated on 100 reads wanders roughly $\sqrt{2}$
+wider than one estimated on 200 (@sec-simulating-a-process's depth lesson,
+applied to the evaluator). Its bias also drifts slightly pessimistic:
+training on 300 reads instead of 600 gives a genuinely worse model than
+the full-data one being graded. The training-score and CV rows barely
+move — neither uses the split. The general rule: a held-out estimate has
+its own sampling variability, and it is set by the *test* count.
+:::
+
+### 6.2 · Modify the story {#sec-evaluation-p2}
+
+Take the leaky pipeline and repair it by moving *only* the selection step.
+Then explain to a skeptical colleague why the "worse" number is the better
+pipeline — using the permutation run as your evidence.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+The repair is `top_columns(X_noise[:30], y_noise[:30], 20)` — selection
+sees only the training half — and the score drops from 0.97 to 0.47. The
+argument: run both pipelines on shuffled labels. The leaky one scores
+~0.92 on labels that mean nothing, so its 0.97 measures its talent for
+flattering *any* labels. The honest one hovers around 0.5 on shuffled labels —
+and its 0.47 on real ones is one noisy draw around the coin-flip truth of
+a noise world. A score is evidence only when the same pipeline cannot
+manufacture it from nothing; the lower number is the one that means
+something.
+:::
+
+### 6.3 · Hand-calculate {#sec-evaluation-p3}
+
+A screening tool on 10,000 samples: 100 truly positive, of which it
+catches 90; it also flags 495 of the 9,900 negatives. Compute sensitivity,
+specificity, and PPV by hand. Then keep both rates fixed and recompute PPV
+at 10 true positives in 10,000.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Sensitivity $= 90/100 = 0.90$. Specificity $= 9405/9900 = 0.95$. PPV
+$= 90/(90+495) \approx 0.154$ — six flags in seven are false already. At
+10-in-10,000: catches 9, false-flags $0.05 \times 9990 \approx 500$, so
+PPV $= 9/509 \approx 0.018$ — fifty-five flags per true positive, from the
+*same tool*. Sensitivity and specificity are properties of the tool; PPV
+is a property of the tool *in a population* — it has a prior in it, which
+is @sec-mix's lesson arriving in evaluation clothes.
+:::
+
+### 6.4 · Spot the mismatch {#sec-evaluation-p4}
+
+A pipeline, each step individually correct: (1) compute each column's mean
+and spread on the full dataset, and standardize the columns; (2) split
+80/20; (3) train on the 80; (4) report accuracy on the 20. The authors
+note proudly that feature selection happens nowhere. Where is the leak,
+and how big do you expect it to be?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Step 1: the standardization *statistics* were computed on all rows, so
+every training-set column was scaled using the test rows' means and
+spreads — the test data participated in preprocessing. The leak is real
+but usually small: two thousand rows' means barely move when twenty rows
+are excluded, so expect a whisper, not the 0.97-on-noise catastrophe —
+selection leaks *choices* (which features exist), standardization leaks
+only *statistics*. The discipline that needs no case-by-case judgment:
+anything estimated from data — means, spreads, thresholds, feature lists —
+is part of the model, and is refit inside each training set. The
+permutation null arbitrates when you are unsure whether a leak matters.
+:::
+
+### 6.5 · Read the notation {#sec-evaluation-p5}
+
+Translate into a loop, stating what is recomputed inside it and what must
+never be:
+
+$$
+\text{CV} = \frac{1}{5}\sum_{j=1}^{5} \text{acc}\!\left(\text{model trained on } \mathcal{D}\setminus F_j,\ F_j\right)
+$$
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+The loop is `five_fold_scores`: for each $j$, a mask picks fold $j$ as
+test, its complement as train; *everything learned from data* — the
+presence tables, the prior, and any selection or scaling step, had there
+been one — is recomputed from $\mathcal{D}\setminus F_j$ inside the loop;
+the accuracy is scored on $F_j$; the five results are averaged. What must
+never be recomputed inside: nothing — the trap runs the other way. What
+must never be computed *outside* the loop is anything data-derived, since
+computing it once on all of $\mathcal{D}$ is exactly the leak of problem
+6.4. The notation's $\mathcal{D}\setminus F_j$ marks the boundary of what
+the model may see; the loop body is that boundary, enforced.
+:::

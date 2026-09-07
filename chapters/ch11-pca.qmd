@@ -3,27 +3,592 @@ id: pca
 unit: 11
 act: III
 operation: "latent"
-concepts: []
-prerequisites: []
-notation_introduced: []
-misconceptions: []
-practice_problems: []
+concepts: [latent-continuous, reduced-space, scree-honesty, projection-not-data]
+prerequisites: [three-answers-p-gg-n, hidden-layer-inferred, storyless-epistemics, structural-checks, truth-as-input]
+notation_introduced: [component-loading-score, variance-explained]
+constructs_introduced: []
+misconceptions:
+  - "PC1 is the most biologically important axis."
+  - "Points close together in the projection are similar cells."
+  - "Variance explained measures how true the summary is."
+practice_problems:
+  - id: pca-1
+    kind: predict-the-output
+    objective: >
+      Predict the scree of a pure-noise matrix before computing it — and
+      say what any shoulder in it would mean.
+    probes: scree-honesty
+    solution: worked
+  - id: pca-2
+    kind: modify-the-story
+    objective: >
+      Give the world a second hidden coordinate and predict what the scree
+      and the recovered scores do.
+    probes: latent-continuous
+    solution: worked
+  - id: pca-3
+    kind: hand-calculate
+    objective: >
+      Project three cells onto a given two-gene direction by hand.
+    probes: reduced-space
+    solution: worked
+  - id: pca-4
+    kind: spot-the-mismatch
+    objective: >
+      Diagnose a "population structure" finding whose PC1 tracks the assay
+      plate.
+    probes: projection-not-data
+    solution: worked
+  - id: pca-5
+    kind: read-the-notation
+    objective: >
+      Turn "PC1 explains 34% of the variance" into one honest sentence and
+      one tempting dishonest one.
+    probes: scree-honesty
+    solution: worked
 ---
 
 # Fewer dimensions, same story: PCA {#sec-pca}
 
-> **Under construction.**
-
-*The question this chapter answers:* **What structure hides in this expression matrix?**
-
-<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
 ## The problem
+
+A differentiation time course: 300 cells, expression measured for 1,000
+genes. The matrix has 300,000 numbers in it and nobody can look at it —
+not at it, not into it. Every question the lab wants to ask ("do the
+cells progress?", "are there outliers?", "did the batches behave?") is a
+question about *structure* in that matrix, and the eye needs two
+dimensions, maybe three.
+
+So the practical question of this chapter: **can a thousand measured genes
+be compressed into a few coordinates that keep the structure — and how
+would you know how much was kept, and what kind of thing was lost?** This
+is @sec-linear-regression's third answer to $p \gg n$: not penalize, not
+rank — **combine**.
+
 ## The story
+
+Storyless methods still deserve story-shaped scrutiny, and this one has a
+story worth writing down — because when it holds, the method is not a
+summary but an *inversion*.
+
+Suppose each cell secretly sits at one number: $z$, its differentiation
+progress. No instrument measures $z$. What the instrument measures is a
+thousand genes, and each gene is a **noisy reporter** of $z$: gene $j$
+responds with its own gain $w_j$ — strongly positive for genes that rise
+with progress, negative for genes that fall, near zero for bystanders —
+plus its own noise:
+
+$$
+x_{ij} = w_j \, z_i + \varepsilon_{ij}
+$$
+
+One hidden number per cell, one gain per gene, and the thousand columns
+are correlated *because they share a cause*. You met this architecture in
+@sec-nest — a hidden layer inferred from its fingerprints — with one
+difference of type: there the hidden thing widened a spread; here it
+**correlates the columns**. The fingerprint of a shared hidden coordinate
+is genes moving together.
+
+The method of this chapter — **principal component analysis** — is the
+inversion of that story: given only the matrix, find the direction the
+columns move together along (the gains, up to overall scale) and each
+cell's position along it (the $z$'s). And because we can plant the story,
+we can grade the inversion exactly.
+
 ## The story, as code
+
+```{python}
+import numpy as np
+
+def make_course(n_cells, n_genes, noise_sd, rng):
+    """Each cell has a hidden progress z; each gene reads z with its own gain."""
+    z = rng.normal(0, 1, size=n_cells)
+    gains = rng.normal(0, 0.6, size=n_genes)
+    rows = []
+    for i in range(n_cells):
+        rows.append(gains * z[i] + rng.normal(0, noise_sd, size=n_genes))
+    return np.array(rows), z, gains
+
+rng = np.random.default_rng(401)
+X, z_true, gains_true = make_course(300, 1000, 1.0, rng)
+print("the matrix:", X.shape)
+```
+
+(`gains * z[i]` multiplies every gene's gain by this cell's one hidden
+number at once — a thousand reporters reading the same dial.)
+
 ## Playing with the story
+
+What does a hidden coordinate look like from outside? Pick two genes with
+strong gains and scatter them:
+
+```{python}
+#| fig-cap: "Two reporters of the same hidden coordinate (left) slant together; two reporters in a world with no hidden coordinate (right) form a blob."
+import matplotlib.pyplot as plt
+
+order = np.argsort(np.abs(gains_true))
+strong_a, strong_b = order[999], order[998]
+
+rng = np.random.default_rng(419)
+noise_rows = []
+for _ in range(300):
+    noise_rows.append(rng.normal(0, 1, size=1000))
+N = np.array(noise_rows)
+
+fig, axes = plt.subplots(1, 2, figsize=(7.5, 3.4))
+axes[0].plot(X[:, strong_a], X[:, strong_b], ".", color="#2a78d6", ms=4)
+axes[0].set_title("shared hidden coordinate", fontsize=10)
+axes[1].plot(N[:, strong_a], N[:, strong_b], ".", color="#898781", ms=4)
+axes[1].set_title("pure noise", fontsize=10)
+for ax in axes:
+    ax.set_xlabel(f"gene {strong_a}")
+    ax.spines[["top", "right"]].set_visible(False)
+axes[0].set_ylabel(f"gene {strong_b}")
+plt.show()
+```
+
+The slant *is* the shared cause. Two genes with aligned gains rise and
+fall together because the same $z$ drives both; two noise columns owe each
+other nothing. A thousand genes slanting together in a thousand dimensions
+is what the matrix "contains" — and the direction of that collective slant
+is the thing to find.
+
 ## Where the numbers come from
+
+Finding it takes no new mathematics — a loop finds it. Start from a random
+direction (a weight per gene). Project every cell onto it: each cell's
+**score** is the weighted sum of its expression, the same weighted-sum
+machinery as @sec-logistic-regression's $\eta$, with no outcome to serve.
+Then update the direction *toward the cells that scored big* — each gene's
+new weight is how strongly it co-moves with the current scores — normalize
+so the direction stays unit length, and repeat. Directions that share the
+data's slant reinforce; directions across it wash out:
+
+```{python}
+def center_columns(X):
+    return X - X.mean(axis=0)   # each gene, centered on its own mean
+
+def pc_direction(X, n_steps, rng):
+    """The direction the columns move together along: start random, iterate."""
+    w = rng.normal(0, 1, size=X.shape[1])
+    w = w / np.sqrt((w * w).sum())
+    for _ in range(n_steps):
+        scores = (X * w).sum(axis=1)        # every cell's position along w
+        new_w = []
+        for j in range(X.shape[1]):
+            new_w.append((X[:, j] * scores).sum())   # gene j's co-movement
+        w = np.array(new_w)
+        w = w / np.sqrt((w * w).sum())      # keep it a direction, not a magnitude
+    scores = (X * w).sum(axis=1)
+    return w, scores
+
+X_centered = center_columns(X)
+rng = np.random.default_rng(409)
+loadings, scores = pc_direction(X_centered, 15, rng)
+```
+
+The settled direction is the **first principal component**; its per-gene
+weights are the **loadings**, and the per-cell projections are the
+**scores**. Grade the inversion against the planted truth:
+
+```{python}
+def correlation(a, b):
+    a = a - a.mean()                        # plain correlation, from its parts
+    b = b - b.mean()
+    return (a * b).mean() / (a.std() * b.std())
+
+print("corr(scores, true z):       ", round(correlation(scores, z_true), 3))
+print("corr(loadings, true gains): ", round(correlation(loadings, gains_true), 3))
+total_variance = X_centered.var(axis=0).sum()
+print("share of all variance along PC1:", round(scores.var() / total_variance, 3))
+```
+
+Correlations of **−0.999 and −0.995**: the loop recovered the hidden
+coordinate and every gene's gain, nearly perfectly — *up to sign*. The
+minus is not an error and will never go away: the story cannot distinguish
+"progress measured forward with these gains" from "progress measured
+backward with flipped gains," since both produce the identical matrix. A
+PC's orientation is a coin flip; only the axis is real. Say it once and
+check every downstream interpretation against it.
+
+The third number — 0.267 — is the **variance explained**: of all the
+spread in all thousand columns, the share that sits along this one
+direction. In this world that is exactly the signal's share (the planted
+world put 27% of its variance in $z$), so the number is honest. Two checks
+calibrate it. Pure noise:
+
+```{python}
+rng = np.random.default_rng(421)
+noise_loadings, noise_scores = pc_direction(center_columns(N), 15, rng)
+print("pure noise: PC1 explains",
+      round(noise_scores.var() / center_columns(N).var(axis=0).sum(), 3))
+```
+
+**0.8%.** @sec-simulating-a-process's structural check, alive in week 11:
+a matrix with no structure must yield no dominant component, and this
+pipeline says so. Any analysis that would have reported structure here is
+broken; run this check before trusting any of what follows.
+
+And how many components? Remove the first component from the matrix
+(subtract each cell's score times the loadings — what PC1 accounted for)
+and run the loop again on the remainder; repeat. In a world planted with
+**two** hidden coordinates:
+
+```{python}
+def remove_component(X, loadings, scores):
+    rows = []
+    for i in range(X.shape[0]):
+        rows.append(X[i] - scores[i] * loadings)
+    return np.array(rows)
+
+def make_two_factor(n_cells, n_genes, rng):
+    z1 = rng.normal(0, 1, size=n_cells)
+    z2 = rng.normal(0, 1, size=n_cells)
+    gains1 = rng.normal(0, 0.7, size=n_genes)
+    gains2 = rng.normal(0, 0.45, size=n_genes)
+    rows = []
+    for i in range(n_cells):
+        rows.append(gains1 * z1[i] + gains2 * z2[i] + rng.normal(0, 1.0, size=n_genes))
+    return np.array(rows)
+
+rng = np.random.default_rng(431)
+X_two = center_columns(make_two_factor(300, 1000, rng))
+```
+
+```{python}
+#| fig-cap: "The scree of a world planted with exactly two hidden coordinates: two shoulders, then the noise floor."
+rng = np.random.default_rng(433)
+working = X_two * 1.0
+total_two = X_two.var(axis=0).sum()
+explained = []
+for k in range(5):
+    w_k, s_k = pc_direction(working, 15, rng)
+    explained.append(s_k.var() / total_two)
+    working = remove_component(working, w_k, s_k)
+
+fig, ax = plt.subplots(figsize=(5.5, 3))
+ax.plot(np.arange(1, 6), explained, "o-", color="#2a78d6", lw=2)
+ax.set_xticks(np.arange(1, 6))
+ax.set_xlabel("component")
+ax.set_ylabel("share of variance explained")
+ax.spines[["top", "right"]].set_visible(False)
+print("variance explained:", np.round(np.array(explained), 3))
+plt.show()
+```
+
+The **scree plot**: 0.284, 0.129, then a flat 0.004 floor. Two planted
+coordinates, two shoulders, and the floor is what pure noise earns — which
+you know, because you measured it. Read every scree against that floor,
+never against zero.
+
+One practical trap before the notation, executed. Real expression columns
+come in wildly different natural scales; append a single loud gene —
+twenty times the spread, no relationship to $z$ — and rerun:
+
+```{python}
+rng = np.random.default_rng(439)
+loud = rng.normal(0, 20, size=300)          # one high-magnitude, structureless gene
+rows = []
+for i in range(300):
+    row = list(X[i])
+    row.append(loud[i])
+    rows.append(np.array(row))
+X_loud = center_columns(np.array(rows))
+
+rng = np.random.default_rng(443)
+loud_loadings, loud_scores = pc_direction(X_loud, 15, rng)
+print("biggest |loading| now:", round(np.abs(loud_loadings).max(), 2),
+      "— on the loud gene:", bool(np.argsort(np.abs(loud_loadings))[1000] == 1000))
+print("corr(scores, z) now:", round(np.abs(correlation(loud_scores, z_true)), 3))
+
+scaled = X_loud / X_loud.std(axis=0)        # every gene rescaled to spread 1
+rng = np.random.default_rng(449)
+s_loadings, s_scores = pc_direction(center_columns(scaled), 15, rng)
+print("after per-gene scaling, corr(scores, z):",
+      round(np.abs(correlation(s_scores, z_true)), 3))
+```
+
+One gene out of a thousand and PC1 is *its* — loading 0.95 on the loud
+column, correlation with the true biology down from 0.999 to 0.38 —
+because variance is the only currency this method counts, and the loud
+gene is rich. Divide each column by its own spread and the biology comes
+back (0.999). Whether to scale is a real decision — it declares every
+gene's variation equally interesting — but *not* scaling is also a
+decision, and it hands the analysis to whichever columns shout.
+
 ## The notation
+
+Words, mostly, and they enter the decoder as working vocabulary. A
+**component** is a direction in gene space — one weight per gene. Its
+**loadings** are those weights; a cell's **score** is the weighted sum of
+its (centered) expression — the projection. **Variance explained** is the
+scores' variance as a share of the total, and the **scree** is that share,
+per component, in order. PC1 is *the direction of most shared variation* —
+a superlative about variance and about nothing else. The matrix-language
+of this subject (eigenvectors, singular values) buys speed and exactness
+for the same objects; a standard treatment supplies it when you want the
+machinery, and nothing in this book will.
+
 ## A worked design
+
+> **The problem.** A core facility processed a 384-sample RNA-seq study
+> across four plates over two weeks. A month later, the lab suspects a
+> plate got swapped with another study's on day three. No one is sure.
+> Design the check — and, while you are at it, the standing QC screen the
+> facility should run on every study before release.
+
+**Frame.** This is projection as *quality control*, the most common real
+use of this chapter a student will meet: you do not care what PC1 means —
+you care what it *tracks*. The design's logic: compute the top few
+components of the study; correlate each with every piece of metadata on
+hand (plate, day, operator, RNA quality, and the biology's own design
+labels); structure that tracks logistics is trouble, structure that
+tracks biology is signal. The unknown is not a parameter — it is *which
+world this dataset came from* (clean, or contaminated), and projections
+are how a 384 × 20,000 matrix gets small enough to interrogate. Scaling
+is on, per the loud-gene demo; the components are computed once and
+reused for every metadata question.
+
+**Decompose.** (1) The projection: top five components of the scaled
+matrix. (2) The metadata sweep: per component, its association with each
+metadata column — a correlation for continuous ones, a group separation
+for categorical ones — laid out as one small table, components by
+metadata. (3) The swap test specifically: if a plate was swapped in, its
+samples came from a different tissue and study — they will not drift, they
+will *island*: scores for that plate separated from all others on an early
+component, with loadings spread genome-wide (a swap moves everything, not
+a pathway). (4) The calibration run, because this is Act III: simulate
+the swap — splice 96 samples from a public dataset of another tissue into
+a clean study — and confirm the screen sees it (it will, loudly); then
+simulate the *hard* case, a subtle batch shift, and measure the smallest
+shift the screen catches. The screen's detection floor is part of its
+documentation. (5) The standing QC: steps 1–2 as an automated report per
+study, with the decision rule written down — which associations block
+release, which get flagged, who decides.
+
+**Select.** PCA-based screening over per-gene batch tests as the primary
+screen, because the failure being hunted is *coordinated* — a swap or a
+batch effect moves thousands of genes coherently, which is exactly what a
+variance-seeking method amplifies — and because the readout (a scores
+plot colored by plate) is legible to every consumer of the report. The
+rejected alternative — testing each gene for plate association and
+counting hits (@sec-glms's scan pointed at plates) — is kept as the
+*second* line: it localizes which genes carry a subtler effect once the
+projection flags it. Screens coarse and legible; follow-ups fine and
+slow.
+
+**Anticipate.** First, the screen's own confounding: if plate assignment
+followed biology (all tumors on plate one — it happens), a biology
+component *will* track plate and the screen cannot tell design confounding
+from batch effect; the fix is upstream, at randomization, and the report
+should refuse to arbitrate when design and logistics are aliased. Second,
+the sign trap: scores are orientation-free, so "plate four is *low* on
+PC2" means nothing — only separation does. Third, thresholds: a 384-sample
+study will always show *some* plate association by luck; the calibration
+run's noise floor, not zero, is the release bar. Fourth, the quiet failure:
+a swap of biologically similar samples (same tissue, different donors)
+may hide below the floor — the screen's documentation must say what it
+cannot see, or the facility will believe "screen passed" means "no swap,"
+which no projection can promise.
+
+**What to notice.** The projection is instrumented (metadata sweep), not
+interpreted; the screen is calibrated on planted failures before it
+judges real ones, and it ships with a detection floor and a stated blind
+spot — the same honesty this book demands of a discovery list.
+
 ## When the model is wrong
+
+Variance is the method's only sense. Three executed ways that sense
+misleads, in rising order of subtlety.
+
+**First: the loudest structure owns PC1, and loud is not interesting.**
+Rerun the time course with a batch effect — the first 150 cells processed
+in a different week, every gene shifted by its own batch offset:
+
+```{python}
+rng = np.random.default_rng(457)
+X_b, z_b, gains_b = make_course(300, 1000, 1.0, rng)
+batch_offset = rng.normal(0, 1.6, size=1000)    # each gene's own shift, week to week
+rows = []
+for i in range(300):
+    if i < 150:
+        rows.append(X_b[i] + batch_offset)
+    else:
+        rows.append(X_b[i])
+X_b = center_columns(np.array(rows))
+in_first_batch = (np.arange(300) < 150)
+
+rng = np.random.default_rng(461)
+w_1, s_1 = pc_direction(X_b, 15, rng)
+print("PC1: |corr with batch| =", round(np.abs(correlation(s_1, in_first_batch * 1.0)), 2),
+      "  |corr with biology z| =", round(np.abs(correlation(s_1, z_b)), 2))
+rng = np.random.default_rng(463)
+w_2, s_2 = pc_direction(remove_component(X_b, w_1, s_1), 15, rng)
+print("PC2: |corr with batch| =", round(np.abs(correlation(s_2, in_first_batch * 1.0)), 2),
+      "  |corr with biology z| =", round(np.abs(correlation(s_2, z_b)), 2))
+```
+
+PC1 correlates 1.00 with the *processing week* and 0.15 with the biology;
+the differentiation signal — the entire point of the experiment — has been
+demoted to PC2. Nothing malfunctioned: the batch moved more variance than
+the biology, and **variance explained measures loudness, not interest.**
+This is why the worked design swept metadata before meaning, and why "PC1
+= the main biological axis" is a claim, never a default.
+
+**Second: a linear summary of a curved story bends the picture.** Real
+differentiation is not a thousand linear reporters; genes turn on and off
+in *waves* — each peaks somewhere along the trajectory. Build that world,
+truly one-dimensional, and project it:
+
+```{python}
+#| fig-cap: "A truly one-dimensional trajectory, projected: the arch. The curve is the projection's artifact; the data's own coordinate runs along it, not across it."
+def make_trajectory(n_cells, n_genes, rng):
+    z = rng.uniform(0, 1, size=n_cells)             # true 1-D progress
+    peak_at = rng.uniform(0, 1, size=n_genes)
+    rows = []
+    for i in range(n_cells):
+        gap = z[i] - peak_at
+        activity = np.exp(-(gap * gap) / 0.02)      # each gene peaks along the way
+        rows.append(activity + rng.normal(0, 0.2, size=n_genes))
+    return np.array(rows), z
+
+rng = np.random.default_rng(467)
+X_t, z_t = make_trajectory(300, 400, rng)
+X_t = center_columns(X_t)
+rng = np.random.default_rng(479)
+w_a, s_a = pc_direction(X_t, 20, rng)
+w_b, s_b = pc_direction(remove_component(X_t, w_a, s_a), 20, rng)
+
+fig, ax = plt.subplots(figsize=(5.6, 3.6))
+image = ax.scatter(s_a, s_b, c=z_t, cmap="viridis", s=14)
+ax.set_xlabel("PC1 score")
+ax.set_ylabel("PC2 score")
+fig.colorbar(image, label="true progress z")
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+The **horseshoe**: a one-coordinate world drawn as an arch across two
+components, cells colored by their true progress marching smoothly along
+the curve. A reader who takes the picture literally sees two dimensions,
+maybe a branching fate decision at the bend; the truth is one dimension,
+bent by the projection, because early-wave genes and late-wave genes are
+both *un*like mid-trajectory genes and a flat summary can only render
+that as curvature. When a low-dimensional picture of high-dimensional
+biology shows an arch, suspect the summary before the biology.
+
+**Third: the picture is a projection, not the data — and flexible maps
+raise the stakes.** Beyond PCA, the field's favorite pictures come from
+methods (t-SNE, UMAP) that bend the mapping locally to keep neighbors
+together. They find real neighborhood structure PCA flattens — and their
+pictures surrender the properties a projection still had: distances
+between islands stop meaning anything, island *sizes* stop meaning
+anything, and at aggressive settings uniform noise renders as convincing
+clusters. The definitive walk through those failure modes, with live
+dials, is Wattenberg, Viégas, and Johnson's *How to Use t-SNE
+Effectively* [@wattenberg2016] — read it before the first time one of
+these maps decides anything for you. The reflexes of this chapter carry
+over unchanged: run the noise control (this chapter's structural check,
+verbatim), color by metadata before believing meaning, and treat every
+2-D rendering of a 1,000-D matrix as testimony, not evidence.
+
 ## Practice problems
--->
+
+Ungraded, solutions worked. Do them before looking.
+
+### 11.1 · Predict the output {#sec-pca-p1}
+
+Before computing: what does the five-component scree of the pure-noise
+matrix `N` look like — and if a colleague's scree of *their* data looks
+like that, what have they learned? Then run the deflation loop on `N` and
+check.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Flat at the floor: five values near 0.008, no shoulder, because with no
+shared cause every direction carries an almost equal sliver (the small
+excess over $1/1000$ is what 300 cells of luck buys the best direction).
+A colleague whose scree looks like this has learned something real and
+useful: their matrix's variance has no dominant shared directions —
+either there is no coordinated structure or it is too quiet for this
+sample size. What they must *not* do is report PC1 anyway; a component
+exists mechanically for any matrix, including this one.
+:::
+
+### 11.2 · Modify the story {#sec-pca-p2}
+
+`make_two_factor` plants coordinates with gains of spread 0.7 and 0.45.
+Predict, then verify: what happens to the scree and to
+`corr(PC1 scores, z1)` as you move the second spread from 0.45 up to
+0.7 — and what breaks *exactly* at equality?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+As the second factor's gains grow, shoulder two rises toward shoulder
+one. At equality the two hidden coordinates carry identical variance,
+and "the direction of most shared variation" stops being one direction —
+any blend of the two factors explains the same amount, so PC1 lands on
+an arbitrary mixture (your seed's choice) and `corr(PC1, z1)` becomes a
+lottery anywhere between 0 and 1. The components are defined by variance
+*ordering*; when the ordering ties, the individual components mean
+nothing while their two-dimensional span is still exactly right. Report
+spans, not axes, whenever shoulders are close.
+:::
+
+### 11.3 · Hand-calculate {#sec-pca-p3}
+
+Two genes, direction $w = (0.8, 0.6)$ (unit length: $0.64 + 0.36 = 1$).
+Three cells, centered expression $(2, 1)$, $(0, -1)$, $(-1, 2)$. Compute
+each cell's score by hand, and say which cell the direction considers
+most extreme.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+A score is the weighted sum: cell 1: $0.8 \times 2 + 0.6 \times 1 = 2.2$;
+cell 2: $0 - 0.6 = -0.6$; cell 3: $-0.8 + 1.2 = 0.4$. Cell 1 is most
+extreme *along this direction*. Note cell 3, far from the origin in the
+plane, scores near zero: its variation is mostly *across* $w$, and this
+direction cannot see it. Every score in this chapter — every point in
+every PCA plot — is this arithmetic, and everything not along the chosen
+directions is invisible to it.
+:::
+
+### 11.4 · Spot the mismatch {#sec-pca-p4}
+
+A population-genetics preprint reports "clear population structure: PC1
+separates the cohort into two groups (variance explained 11%)." A reviewer
+notices the two groups are exactly the study's two genotyping plates, and
+that PC1's loadings are spread across essentially all markers rather than
+concentrated in any genomic region. The authors respond that 11% is far
+above the noise floor. Who is right, and what does each observation
+contribute?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Both observations are correct and the reviewer's diagnosis wins. The 11%
+is genuinely real structure — the noise-floor argument only establishes
+that *something* coordinated is there, not *what*. The plate alignment
+identifies the something: processing, not ancestry (this chapter's first
+failure, verbatim — variance measures loudness). The genome-wide smear of
+loadings is the clincher: population structure concentrates in markers
+with real allele-frequency differences, while a technical shift nudges
+everything a little — a swap-versus-pathway signature, exactly the worked
+design's islanding rule. The screen's order of operations — metadata
+before meaning — exists to catch precisely this paper.
+:::
+
+### 11.5 · Read the notation {#sec-pca-p5}
+
+"PC1 explains 34% of the variance." Write the one honest sentence a
+methods section can build on that number, and the one tempting sentence
+it cannot support — and name what extra evidence the tempting one would
+need.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Honest: "one direction of coordinated variation accounts for a third of
+the total spread across all genes — far above this matrix's noise floor,
+so a dominant shared axis exists." Tempting and unsupported: "the main
+axis of biological variation in this system explains 34% of expression."
+The number says nothing about *what* the axis is — batch, library depth,
+cell size, and biology are all candidates until the axis is correlated
+against metadata (loudness, not interest), and 34% is a statement about
+this matrix's variance budget, not about biology's. The upgrade requires
+the worked design's sweep: show the axis tracks the biological covariate
+and not the logistical ones.
+:::

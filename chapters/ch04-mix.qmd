@@ -3,27 +3,608 @@ id: mix
 unit: 4
 act: II
 operation: "mix"
-concepts: []
-prerequisites: []
-notation_introduced: []
-misconceptions: []
-practice_problems: []
+concepts: [prior-likelihood-posterior, mixing-proportion, pseudocounts, identifiability, labels-known-then-hidden]
+prerequisites: [simulating-a-process, likelihood, forward-grid-inversion, binomial-counts, nesting, two-state-layer]
+notation_introduced: [normal-named, bayes-proportional, prior, posterior]
+constructs_introduced: [boolean-mask]
+misconceptions:
+  - "A confident posterior means the read strongly resembles organism A."
+  - "A classifier trained on a community works in any community the organisms appear in."
+  - "A probability estimated as zero means the data showed something is impossible."
+practice_problems:
+  - id: mix-1
+    kind: predict-the-output
+    objective: >
+      Predict how the posterior for the same read moves when the mixing
+      proportion changes tenfold — before re-running the world.
+    probes: mixing-proportion
+    solution: worked
+  - id: mix-2
+    kind: modify-the-story
+    objective: >
+      Extend the two-organism story to three and say what happens to the
+      posterior shares — including the one thing that must still be true.
+    probes: prior-likelihood-posterior
+    solution: worked
+  - id: mix-3
+    kind: hand-calculate
+    objective: >
+      Compute a complete posterior by hand on a two-base read and watch
+      Bayes' theorem reduce to one line of arithmetic.
+    probes: prior-likelihood-posterior
+    solution: worked
+  - id: mix-4
+    kind: spot-the-mismatch
+    objective: >
+      Diagnose a classifier that reports likelihoods as if they were
+      posteriors, and say exactly which worlds it is safe in anyway.
+    probes: mixing-proportion
+    solution: worked
+  - id: mix-5
+    kind: read-the-notation
+    objective: >
+      Translate Bayes' theorem in proportional form to a filtering
+      simulation and back, glossing the conditional bar in both directions.
+    probes: prior-likelihood-posterior
+    solution: worked
 ---
 
-# Mix: Bayes' theorem and what a sample is made of {#sec-mix}
+# Mix: which process produced this observation? {#sec-mix}
 
-> **Under construction.**
-
-*The question this chapter answers:* **What species did this sequence come from?**
-
-<!-- Chapter anatomy — the order is the pedagogy. Do not reorder.
 ## The problem
+
+A collaborator hands you a sequencing run from a mock community — a deliberate
+mixture of two cultured organisms, grown together as a control. Call them A
+and B. Their genomes are on file, so you know one blunt fact about each:
+**66% of A's bases are G or C; for B it is 48%.**
+
+She pulls out a single read: 40 bases, of which 25 are G or C. Her question
+sounds almost too small to need a method: **which organism did this read come
+from — and how sure can I be?**
+
+Not *certain*, clearly. B's genome is 48% GC on average, but a 40-base window
+of it can easily run rich; A's can run poor. Both organisms can produce this
+read. The question is not *which one could have* — both could — but **which
+one more plausibly did, and by how much.** That is a probability, and by the
+end of this chapter you will compute it three ways: by counting simulated
+reads, by arithmetic on a 2×2 table, and by a one-line theorem — and they are
+the same computation.
+
 ## The story
+
+You have built a story like this before. In @sec-nest, practice problem 3.2,
+each day was quiet or flaring — a hidden two-state layer, then data drawn
+given the state. This chapter's story is that story, with the state promoted
+from scenery to the thing you care about:
+
+1. **Nature flips a weighted coin.** A fraction $\pi_A$ of the reads in the
+   run come from organism A — because that is A's share of the DNA in the
+   tube. The coin decides which organism this read came from.
+2. **The organism writes the read.** Given the coin came up A, each of the 40
+   bases is G-or-C with probability 0.66 — a binomial you have owned since
+   @sec-simulating-a-process. Given B, the same story at 0.48.
+
+A world where each observation first draws *which process*, then draws data
+from it, is a **mixture**, and $\pi_A$ — the coin's weight — is its **mixing
+proportion**. This week's operation: run different processes side by side and
+blend their outputs.
+
+One assumption deserves saying out loud, because everything in this chapter
+leans on it and a later chapter exists to take it away: **in the simulated
+world, you can see the coin.** Every read comes stamped with the organism
+that produced it, because you wrote the simulator. Real training data earns
+those labels some other way — someone cultured the organisms separately, or
+trusted a database — and in @sec-clustering you will meet the same model with
+the labels deleted. For now: labels visible, and remember that it is an
+assumption.
+
 ## The story, as code
+
+Fifteen lines. The two levels of the story are the `if` and the two
+`binomial` lines — the coin, then the read.
+
+```{python}
+import numpy as np
+
+def one_read(pi_a, gc_a, gc_b, n_bases, rng):
+    """One read from the mixed community: which organism produced it,
+    then how many of its bases are G or C."""
+    if rng.random() < pi_a:
+        species = "A"
+        gc_count = rng.binomial(n_bases, gc_a)
+    else:
+        species = "B"
+        gc_count = rng.binomial(n_bases, gc_b)
+    return species, gc_count
+
+rng = np.random.default_rng(41)
+species_list, gc_list = [], []
+for _ in range(100000):
+    s, g = one_read(0.5, 0.66, 0.48, 40, rng)
+    species_list.append(s)
+    gc_list.append(g)
+species = np.array(species_list)
+gc = np.array(gc_list)
+print("first five reads:", species[:5], gc[:5])
+```
+
+One hundred thousand reads, each stamped with its true origin. That stamp is
+the luxury of @sec-simulating-a-process all over again — truth as an input —
+and it is about to do real work.
+
+```{python}
+#| fig-cap: "One hundred thousand simulated reads. The organisms overlap exactly where her read lives."
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(7, 3.2))
+bins = np.arange(5.5, 40.5, 1)
+is_a = (species == "A")   # a mask: True for each read that came from A
+is_b = (species == "B")
+ax.hist(gc[is_a], bins=bins, histtype="step", lw=2, color="#eb6834", label="from A")
+ax.hist(gc[is_b], bins=bins, histtype="step", lw=2, color="#2a78d6", label="from B")
+ax.axvline(25, color="#52514e", ls=":", lw=1.5)
+ax.text(25.4, ax.get_ylim()[1] * 0.93, "her read", color="#52514e")
+ax.set_xlabel("G or C bases, out of 40")
+ax.set_ylabel("reads")
+ax.legend(frameon=False)
+ax.spines[["top", "right"]].set_visible(False)
+plt.show()
+```
+
+The line `is_a = (species == "A")` is doing something new and worth naming.
+`species == "A"` asks the comparison of *every* element at once, and the
+result — called a **mask** — is an array of True/False answers, one per read.
+An array indexed by a mask, `gc[is_a]`, keeps exactly the elements that
+answered True. Name the mask before you use it, so the name says what
+question it asked; masks run this chapter, and most of the book after it.
+
 ## Playing with the story
+
+Her read sits at 25, in the region both histograms cover. Here is the whole
+method of this chapter, in one move you already know from
+@sec-simulating-a-process: **keep the simulated cases that look like the
+observed one, and count.**
+
+```{python}
+observed = 25
+
+looks_like_hers = (gc == observed)      # the mask: which simulated reads match hers
+n_matching = looks_like_hers.sum()      # how many Trues
+from_a = (species[looks_like_hers] == "A")
+print(f"reads that look like hers: {n_matching}")
+print(f"fraction of those from A:  {from_a.mean():.2f}")
+```
+
+About seven thousand of the hundred thousand simulated reads have exactly 25
+GC bases, and 83% of them came from A. That number *is* the answer to her
+question: **given everything the story says, a read like hers came from A
+with probability about 0.83.** No formula was consulted. You built the world,
+found the corner of it that matches what she saw, and read off who lives
+there.
+
+Now interrogate the answer the way you interrogated every simulator so far —
+by turning a dial the real world could turn. The dial that matters here is
+the coin. Suppose the community were not an even blend; suppose A were rare —
+one read in twenty.
+
+**Predict first.** Her read has not changed. Its resemblance to A's genome
+has not changed. Does the answer change?
+
+```{python}
+for pi_a in (0.5, 0.05):
+    rng = np.random.default_rng(43)
+    species_list, gc_list = [], []
+    for _ in range(100000):
+        s, g = one_read(pi_a, 0.66, 0.48, 40, rng)
+        species_list.append(s)
+        gc_list.append(g)
+    sp = np.array(species_list)
+    gcs = np.array(gc_list)
+    matching = (gcs == 25)                # same read, filtered the same way
+    frac_a = (sp[matching] == "A").mean()
+    print(f"pi_A = {pi_a}:  fraction of matching reads from A = {frac_a:.2f}")
+```
+
+From 0.84 to 0.21. Same read, same genomes, opposite call — because when A
+is rare, most of the reads that *look* like A's are B's ordinary excursions,
+since there are nineteen times as many B reads available to stray. What you
+believe about a read depends on what the read looks like **and on how the
+community was mixed**. Neither alone settles it. If that feels unintuitive,
+you have met the most famous stumbling block in applied probability, and you
+just computed your way past it by counting.
+
+The story also runs on measurements that are not counts. Suppose the two
+organisms' DNA fragments differ in length: A's average 240 bases with spread
+30, B's 330 with spread 45. Lengths need a distribution that produces
+continuous values around a center, and the workhorse is the **Normal**: a
+bell around a mean $\mu$ with spread $\sigma$, drawn as
+`rng.normal(mu, sigma)`. That is all you need to know about it for now —
+@sec-linear-regression owes you the reason this particular bell is
+everywhere. Draw from it and look, exactly as you did for the Beta in
+@sec-nest:
+
+```{python}
+rng = np.random.default_rng(47)
+length_list, source_list = [], []
+for _ in range(100000):
+    if rng.random() < 0.5:
+        source_list.append("A")
+        length_list.append(rng.normal(240, 30))    # A's fragment lengths
+    else:
+        source_list.append("B")
+        length_list.append(rng.normal(330, 45))    # B's
+lengths = np.array(length_list)
+source = np.array(source_list)
+
+for observed_length in (250, 285, 320):
+    is_near = (np.abs(lengths - observed_length) <= 5)   # within 5 bases of it
+    frac_a = (source[is_near] == "A").mean()
+    print(f"fragment of {observed_length}: fraction from A = {frac_a:.2f}")
+```
+
+One wrinkle and one lesson. The wrinkle: a continuous measurement is never
+*exactly* matched, so the mask keeps simulated fragments *near* the observed
+one — the same tolerance move as the ±3 band in @sec-simulating-a-process.
+The lesson: 0.87, 0.45, 0.04. A fragment of 250 is confidently A's, 320
+confidently B's, and 285 — between the bells — is a shrug. **The method does
+not manufacture confidence the data does not contain**, which is exactly what
+you want from it.
+
 ## Where the numbers come from
+
+Everything so far assumed you knew the ingredients: $\pi_A$, and each
+organism's composition. In practice those are estimated from the labeled
+reads themselves, and the estimates are the most ordinary arithmetic in the
+book — **counting, divided by how much counting you did**:
+
+```{python}
+is_a = (species == "A")
+is_b = (species == "B")
+print(f"share of reads labeled A:      {is_a.mean():.3f}")
+print(f"GC fraction among A's reads:   {gc[is_a].mean() / 40:.3f}")
+print(f"GC fraction among B's reads:   {gc[is_b].mean() / 40:.3f}")
+```
+
+The labeled corpus hands back 0.503, 0.660, and 0.480 — the settings we put
+in. Estimation here is bookkeeping. Which makes the one place it fails
+quietly all the more important.
+
+Ask the corpus about a read of **33** GC bases — deep in A's territory:
+
+```{python}
+at_33 = (gc == 33)
+print("simulated reads with 33 GC bases:", at_33.sum())
+print("  from A:", (species[at_33] == "A").sum())
+print("  from B:", (species[at_33] == "B").sum())
+```
+
+Five hundred thirty-seven from A. **Zero from B.** So the estimated
+probability that B produces such a read is 0/49667 = 0, and the filtering
+answer is: A, with probability exactly 1. Certainty.
+
+But run the arithmetic on the true story: a 48%-GC organism produces a
+33-of-40 read about once in 170,000 tries. Rare — genuinely, usefully rare —
+but **not impossible**, and the difference between *rare* and *impossible* is
+the difference between strong evidence and no further questions asked. A
+zero estimated from finite data is not a measurement of impossibility; it is
+a statement about how long you looked. Fifty thousand B reads simply never
+had the chance to show you a 1-in-170,000 event.
+
+The honest fix is old and a little humble: before estimating, give every
+possible outcome one imaginary observation — a **pseudocount** — so nothing
+you merely failed to see gets scored as impossible:
+
+```{python}
+n_a = is_a.sum()
+n_b = is_b.sum()
+count_a_33 = (gc[is_a] == 33).sum()
+count_b_33 = (gc[is_b] == 33).sum()
+p_33_a = (count_a_33 + 1) / (n_a + 41)   # +1 per possible GC count, 0..40
+p_33_b = (count_b_33 + 1) / (n_b + 41)
+posterior_a = p_33_a / (p_33_a + p_33_b)
+print(f"P(33 | A) with pseudocounts: {p_33_a:.5f}")
+print(f"P(33 | B) with pseudocounts: {p_33_b:.5f}")
+print(f"answer for a 33-GC read:     {posterior_a:.4f}")
+```
+
+The answer barely moves — 0.998 instead of 1 — and that is the point: the
+pseudocount does not weaken your conclusion, it removes the word *certain*
+from it. On one feature the difference is cosmetic. In @sec-naive-bayes you
+will multiply thousands of these estimated probabilities together, and there
+a single unearned zero does not round an answer — it vetoes it, no matter
+what every other feature says. Fix zeros where they are made, at estimation.
+
 ## The notation
+
+The filtering move compresses to one line. Write $P(A \mid \text{read})$ for
+the fraction you have been computing all chapter — among worlds that produced
+this read, the share where the coin came up A. The bar $\mid$ is @sec-nest's
+"given," read in both directions now: $P(\text{read} \mid A)$ conditions on
+the coin, $P(A \mid \text{read})$ conditions on the data. Then:
+
+$$
+P(A \mid \text{read}) \;\propto\; P(\text{read} \mid A)\; P(A)
+$$
+
+Every piece is something you already computed by counting:
+
+- $P(A)$ is the coin — the **prior**, your answer *before looking at the
+  read*. In the filtering run it is $\pi_A$, the share of simulated reads
+  that came from A at all.
+- $P(\text{read} \mid A)$ is the **likelihood** — @sec-simulating-a-process's
+  "how often does this world produce data like mine," which you have been
+  using since the grid. In the run: the fraction of A's reads with 25 GC
+  bases.
+- $P(A \mid \text{read})$ is the **posterior** — the answer *after* looking:
+  the fraction of matching reads that came from A.
+
+The symbol $\propto$ ("proportional to") is doing the work of the
+denominator: compute the numerator for A and for B, then divide each by
+their total so the shares sum to 1. That division is the whole mystery of
+the missing denominator — nothing deeper is hiding under it.
+
+This is **Bayes' theorem**, and notice what it is in this book: not a new
+idea, but the *receipt* for the counting you did in the first ten minutes of
+the chapter. Simulate the mixture, filter to the matching corner, report the
+shares — the theorem is that procedure with the simulation cancelled out.
+
 ## A worked design
+
+> **The problem.** A liquid-biopsy group draws blood and sequences the
+> cell-free DNA floating in it — fragments shed by dying cells all over the
+> body. In healthy donors nearly all of it comes from blood-cell turnover; in
+> a cancer patient, a slice comes from the tumor's tissue. Fragments from
+> different tissues carry different methylation signatures, which the assay
+> reads out per fragment. The group wants a per-fragment call — **which
+> tissue shed this fragment?** — and, from those calls, an estimate of the
+> tumor-derived fraction, which their clinicians would track over treatment.
+> Design the analysis.
+
+**Frame.** Each fragment is one draw from a mixture: a tissue is chosen with
+some proportion — overwhelmingly blood in every patient — and the tissue
+writes the fragment's methylation signature. That is this chapter's story
+with more than two components, and the base-rate lesson is the clinical
+crux: a tumor share of a percent or two means even a fragment that *looks*
+strongly tumor-like is often a blood fragment straying, because blood has
+fifty times the chances. Per-fragment calls will therefore be humble, and
+the deliverable that can still be solid is the *proportion* — the mixture
+weight — not any single fragment's label. I am treating the reference
+signatures as known from public tissue atlases, and each fragment as
+independent of its neighbors; the second is false in interesting ways
+(fragments from one dying cell arrive together) and I am marking it, not
+fixing it.
+
+**Decompose.** (1) Reference signatures per tissue, from labeled atlas data —
+counting, with pseudocounts, because a methylation pattern unseen in a
+finite atlas is rare, not impossible. (2) The per-fragment posterior across
+tissues, given its signature — this chapter's arithmetic. (3) The cohort
+piece: from all fragments' posteriors, an estimate of the mixture
+proportions, with the blood prior doing loud, visible work. (4) Calibration
+in a world where truth is set: simulate blends at known tumor fractions —
+0%, 0.5%, 2% — and check the estimated fraction tracks the dial. (5) The
+detection floor: the tumor fraction below which the estimate is
+indistinguishable from a healthy donor's, found by simulation, reported to
+the clinicians as part of the answer rather than discovered by them later.
+
+**Select.** The per-fragment engine is exactly the posterior of this
+chapter; nothing fancier is earned until it fails. The honest competitor is
+skipping per-fragment calls entirely and estimating the mixture weights
+directly from the pooled signature distribution — fewer moving parts, and I
+concede it may win; the per-fragment route is chosen because the clinicians
+asked for fragment-level evidence they can inspect. The decision I refuse to
+make silently: what prior to use per patient. A fixed population prior makes
+patients comparable; a per-patient updated prior tracks treatment better but
+lets yesterday's estimate color today's. I would run calibration both ways
+and put the choice, with its costs, in front of the clinical team.
+
+**Anticipate.** First, the reference-panel failure: atlases are built from
+healthy tissue, and tumors drift from their tissue of origin — fragments
+from the very thing we track may match their reference worst. Calibration on
+simulated blends of *healthy* signatures will not catch this; I would need
+tumor-bearing controls, and I flag that as the design's soft spot. Second,
+the assay changes the signature it reads (conversion efficiency varies
+batch to batch), which shifts every posterior coherently — a batch effect
+wearing a biology costume. Third, the independence assumption: bursts of
+related fragments will make the proportion estimate overconfident about its
+own precision — the estimate may be right while its error bar is far too
+narrow to deserve the trust it invites. None of these are exotic; all three are versions of "the
+world that generated the data is not the world in the model," and the
+calibration harness is where each would be caught or missed.
+
+**What to notice.** The design leans on the base-rate lesson twice — once to
+lower ambition (fragment calls are humble), once to relocate the deliverable
+(the proportion is the product). It commits to an engine, names the cheaper
+competitor and what would make it win, and its failures are specific to
+tissue atlases and assay chemistry — not "the data might be noisy."
+
 ## When the model is wrong
+
+Box's warning from @sec-simulating-a-process — **all models are wrong**
+[@box1976] — lands on a new pressure point in this chapter, because a
+posterior does not just estimate; it *recommends*. Three failure modes, two
+of them executed.
+
+**First: the prior is part of the model, and deployment changes it.** Train
+the classifier where the blend is even, then carry it — unchanged — into a
+screening setting where A is one read in a thousand:
+
+```{python}
+like_a = (gc[is_a] == 25).mean()      # P(her read | A), from the corpus
+like_b = (gc[is_b] == 25).mean()      # P(her read | B)
+for pi_a in (0.5, 0.001):
+    numer_a = like_a * pi_a
+    numer_b = like_b * (1 - pi_a)
+    posterior = numer_a / (numer_a + numer_b)
+    print(f"community with pi_A = {pi_a}: P(A | her read) = {posterior:.3f}")
+```
+
+The same read that earned 0.83 in the mock community earns 0.005 in the
+screening one. Neither number is wrong; each is right *in its world*. The
+failure is carrying a posterior across worlds as if it were a property of
+the read. Likelihoods travel — A's genome writes reads the same way in any
+tube. Priors do not, and the posterior has a prior baked in. When someone
+hands you a classifier, the first question is not "how accurate is it" but
+**"in which world was its coin weighed?"**
+
+**Second: when the components overlap, the data cannot say — and no method
+fixes that.** Slide B's composition toward A's and watch the posterior for
+her read drain toward the coin:
+
+```{python}
+for gc_b in (0.48, 0.58, 0.64):
+    rng = np.random.default_rng(53)
+    species_list, gc_list = [], []
+    for _ in range(100000):
+        s, g = one_read(0.5, 0.66, gc_b, 40, rng)
+        species_list.append(s)
+        gc_list.append(g)
+    sp = np.array(species_list)
+    gcs = np.array(gc_list)
+    matching = (gcs == 25)
+    frac_a = (sp[matching] == "A").mean()
+    print(f"B's composition {gc_b}: P(A | her read) = {frac_a:.2f}")
+```
+
+At 0.64 versus 0.66 the answer is 0.48 — the prior, untouched by forty bases
+of data. This is **identifiability**: when two components of a mixture are
+close enough, observations carry almost no information about which one
+produced them, and the posterior honestly reports that by returning your
+prior back to you. You met the seed of this in @sec-simulating-a-process's
+practice problem 1.2, where one site could not distinguish two populations
+from their blend. The resolution limit is a property of the *world* — more
+data narrows it but no algorithm abolishes it, and a method that returns
+confident labels anyway is not resolving the mixture; it is decorating the
+coin. @sec-clustering inherits this limit with the labels gone, where it
+becomes the question "how many clusters are really here?"
+
+**Third: the labels themselves are a model.** Every estimate in this chapter
+was counting *within a label*. The simulator's labels are true by
+construction; real ones were produced by some upstream process — a culture
+that could be impure, a database entry that could be misfiled — and that
+process has an error rate that is part of your model whether you write it
+down or not. If 2% of the training reads labeled B are actually A's, your
+estimate of B's composition is pulled toward A's, which — second failure
+mode — pushes the components together and drains your posteriors toward the
+coin. There is no chunk to run for this one, because the point is that
+nothing in the data announces it: the checks that catch it are the ones you
+design on purpose, with truth as an input.
+
 ## Practice problems
--->
+
+Ungraded, solutions worked. Do them before looking; the looking teaches
+nothing without the doing.
+
+### 4.1 · Predict the output {#sec-mix-p1}
+
+The filtering run put her read at 0.84 from A when $\pi_A = 0.5$, and 0.21
+when $\pi_A = 0.05$. Before running anything: if $\pi_A$ moves to 0.9, will
+the posterior be above or below 0.84 — and will it move as far as the
+0.05 world moved it? Reason from the numerator $P(\text{read} \mid A)\,\pi_A$,
+then check by editing the $\pi$-dial chunk.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Above, and not as far. The likelihood ratio is fixed by the genomes —
+roughly 0.116 to 0.024, about 4.8 to 1 in A's favor. At $\pi_A = 0.9$ the
+prior ratio is 9 to 1, so the posterior odds are $4.8 \times 9 \approx 43$
+to 1: about 0.98. The move from 0.5 to 0.9 multiplied the prior odds by 9;
+the move from 0.5 to 0.05 divided them by 19 — and odds, not probabilities,
+are what the prior multiplies. Run it: the filtered fraction lands near
+0.98.
+:::
+
+### 4.2 · Modify the story {#sec-mix-p2}
+
+A third organism C, with GC fraction 0.57, joins the community at
+proportions $\pi_A = \pi_B = 0.4$, $\pi_C = 0.2$. Modify `one_read` to draw
+from three organisms, re-run the filter for her 25-GC read, and report all
+three shares. Before running: which organism gains the most from sitting
+*between* the other two?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+```{python}
+def one_read_three(pi_a, pi_b, gc_a, gc_b, gc_c, n_bases, rng):
+    roll = rng.random()
+    if roll < pi_a:
+        return "A", rng.binomial(n_bases, gc_a)
+    elif roll < pi_a + pi_b:
+        return "B", rng.binomial(n_bases, gc_b)
+    else:
+        return "C", rng.binomial(n_bases, gc_c)
+
+rng = np.random.default_rng(59)
+source_list, gc_list = [], []
+for _ in range(100000):
+    s, g = one_read_three(0.4, 0.4, 0.66, 0.48, 0.57, 40, rng)
+    source_list.append(s)
+    gc_list.append(g)
+sp = np.array(source_list)
+gcs = np.array(gc_list)
+matching = (gcs == 25)
+for name in ("A", "B", "C"):
+    share = (sp[matching] == name).mean()
+    print(f"P({name} | 25 GC bases) = {share:.2f}")
+```
+A keeps the lead at 0.61 but C — at half the prior — takes 0.27, most of it
+from B, because 25-of-40 is 62.5% GC and C's genome sits nearest it. The
+thing that must still be true: the three shares sum to 1. A posterior is a
+division of the same matching reads, however many ways you slice the coin.
+:::
+
+### 4.3 · Hand-calculate {#sec-mix-p3}
+
+Tiny instance, no computer. Reads are 2 bases long. A's GC fraction is 0.75,
+B's is 0.25, the community is half and half. A read arrives: both bases G or
+C. Compute $P(A \mid \text{read})$ by filling the four numbers
+$P(\text{read} \mid \cdot)\,P(\cdot)$ for both organisms.
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+$P(2 \text{ GC} \mid A) = 0.75^2 = 0.5625$;
+$P(2 \text{ GC} \mid B) = 0.25^2 = 0.0625$. With equal priors the
+numerators are $0.28125$ and $0.03125$; their total is $0.3125$, so
+$P(A \mid \text{read}) = 0.28125 / 0.3125 = 0.9$. Nine to one — exactly the
+$0.5625 : 0.0625$ likelihood ratio, because an even prior adds nothing.
+Every Bayes computation in this book is this table with more rows.
+:::
+
+### 4.4 · Spot the mismatch {#sec-mix-p4}
+
+A colleague's read classifier reports, for each read, "the probability this
+read pattern arises from organism A" — computed as
+$P(\text{read} \mid A)$, normalized against $P(\text{read} \mid B)$ — and
+its calls look excellent on the even mock community. The screening lab
+wants it. The arithmetic is correct. What is wrong, and in exactly which
+worlds is it safe anyway?
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+It reports a likelihood ratio dressed as a posterior — the coin never
+enters. That is why it shines on the mock community: at $\pi_A = 0.5$ the
+prior ratio is 1 and the two quantities coincide, so no even-blend test can
+ever expose the omission. In the screening world the missing factor is
+1-to-999, and its "probability 0.83" reads are 0.5% A. It is safe exactly
+where the prior is flat — and nowhere else. The violated assumption is not
+in the arithmetic but in the words on the output: a likelihood answers "how
+well does each story explain the read," a posterior answers "which story
+produced it, here."
+:::
+
+### 4.5 · Read the notation {#sec-mix-p5}
+
+Translate into a filtering simulation — which mask, filtered how, counting
+what? — and then into one sentence with both bars glossed:
+
+$$
+P(B \mid X = 19) \;\propto\; P(X = 19 \mid B)\;P(B)
+$$
+
+::: {.callout-tip collapse="true" title="Worked solution"}
+Simulation: build the labeled corpus; the mask is `gc == 19`; among the
+reads it keeps, report the fraction whose label is B. The right-hand side
+names that fraction's ingredients: of all simulated reads, B's share (the
+prior, $P(B)$), times how often B's reads land on 19 (the likelihood,
+$P(X = 19 \mid B)$) — normalized against A's same product. Sentence: "the
+probability that B produced a 19-GC read — *given* that we observed 19 — is
+proportional to how often B produces such reads — *given* that B is the
+writer — weighted by how much of the community B is." The first bar
+conditions on data, the second on the writer; the theorem is the bridge
+between them.
+:::
