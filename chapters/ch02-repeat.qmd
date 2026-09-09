@@ -102,14 +102,20 @@ print(arr / 2)
 print(arr.mean(), arr.std())       # chapter 1's average() and spread(), as built-ins
 rng = np.random.default_rng(7)
 print(rng.binomial(80, 0.65, 5))   # five sequencing runs in one call
+print(rng.uniform(0.2, 0.8, 5))    # five methylation levels, anywhere between 0.2 and 0.8
 ```
 
 `np.array` turns a list into an **array**, and arithmetic on an array touches every element
 with no loop. The **reductions** `.mean()`, `.std()`, and `.sum()` collapse an array to one
 number — exactly what `average()` and `spread()` did in @sec-simulating-a-process, now at
 machine speed. And `rng.binomial(n, m, size)` runs the per-read loop you wrote there as a
-single call, one whole experiment per draw. Nothing new happens statistically; the same worlds
-run faster, which is what this unit's operation demands.
+single call, one whole experiment per draw. Its neighbor `rng.uniform(low, high, size)` is
+chapter 1's `rng.random()` — a number anywhere between 0 and 1, every value equally likely —
+stretched to run between `low` and `high` and asked for `size` of them at once. The two do
+different jobs: `binomial` draws *counts* out of a process whose $m$ you supplied; `uniform`
+draws *values of $m$ itself*, spread evenly across a range with no value favored, which is how
+every site below gets its own methylation level. Nothing new happens statistically; the same
+worlds run faster, which is what this unit's operation demands.
 
 One site's group difference, then 1,200 of them. The inner function is @sec-simulating-a-process
 compressed to its built-in form.
@@ -209,6 +215,61 @@ p < 0.05, **dozens of sites come up "significant"** — 56 in the run above, aga
 $1200 \times 0.05 = 60$ the arithmetic promises. Not because anything is wrong with the
 test. Because you asked an honest 1-in-20 question 1,200 times.
 
+### One direction or two? {#sec-rep-sides}
+
+Every p-value above counted the null runs *at least as extreme* as the observation, and the
+code decided what "extreme" meant: `np.abs(null) >= abs(obs)` — a run counts if it is as far
+from zero as the observation *in either direction*. That is the **two-sided** p-value, and it
+answers the question "does this site differ?" There is a second, narrower question — "is tumor
+*higher* at this site?" — and it has its own p-value: count only the runs that beat the
+observation *upward*. That is a **one-sided** p-value. Same 2,000 null runs as before; read
+them both ways:
+
+```{python}
+#| fig-cap: "The same 2,000 null runs, read two ways. Colored bars are the runs each p-value counts; the dotted line is the observed 0.045."
+rng = np.random.default_rng(7)
+m, observed = 0.5, 0.045
+null = null_differences(m, 2000, rng)                # the same 2,000 runs as above
+
+both_tails = np.abs(null) >= abs(observed)           # True where either direction is as extreme
+upper_tail = null >= observed                        # True only where "tumor higher" is as extreme
+print(f"two-sided p = {both_tails.mean():.1%}   one-sided p = {upper_tail.mean():.1%}")
+print(f"one-sided p, had the site gone the other way by 0.045: {np.mean(null >= -observed):.1%}")
+
+def tail_plot(ax, mask, title):
+    """Every null run in gray, then the runs this p-value counts in color."""
+    edges = np.linspace(-0.1, 0.1, 41)
+    ax.hist(null, bins=edges, color="#c9c7c3")
+    ax.hist(null[mask], bins=edges, color="#eb6834")
+    ax.axvline(observed, color="#52514e", ls=":", lw=1.5)
+    ax.set_title(title, fontsize=10)
+    ax.set_xlabel("difference (tumor − normal)")
+    ax.spines[["top", "right"]].set_visible(False)
+
+fig, (left, right) = plt.subplots(1, 2, figsize=(8, 2.8), sharey=True)
+tail_plot(left, both_tails, "two-sided: both tails count")
+tail_plot(right, upper_tail, "one-sided: only \"tumor higher\" counts")
+left.set_ylabel("runs")
+plt.show()
+```
+
+The one-sided p-value is almost exactly half the two-sided one — 4.2% against 8.6% — because
+the null world is symmetric: nothing-at-all overshoots upward about as often as downward, and
+the one-sided count simply declines to look at the downward half. Two consequences, and they are
+the same fact seen from two sides. A one-sided test has more power *in its direction*: the
+same observation clears p < 0.05 one-sided and fails it two-sided. And it is blind in the
+other: had this site gone the other way by the same 0.045, the "tumor higher" p-value would be
+about 96% — nothing to see, by design.
+
+Both versions are honest under the null. Run either over the 1,200 nothing-sites and the
+histogram is flat; the one-sided version just spends its whole 5% on one tail instead of
+splitting it. What makes a one-sided p-value legitimate is *when the direction was chosen*: it
+must come from a reason outside the data — this CpG sits in a promoter that gains methylation in
+tumors, so the only question worth asking is "higher?" — and it must be written down before the
+difference is computed. Decide before looking, and both are fair; the two-sided version is the
+default because it needs no such justification. What it costs to pick the direction *after*
+seeing which way the difference went, you will measure later in this chapter.
+
 ## Where the numbers come from
 
 Now build her actual situation: a world that is *mostly* nothing plus a little something — 60
@@ -264,8 +325,9 @@ Two pieces of shorthand this unit, both small. The p-value, said precisely:
 > the one observed.*
 
 Every word is load-bearing — *null world* (a model you built, of nothing happening), *at least as
-extreme* (both directions, unless you can justify otherwise before looking), *produces* (you can
-always get it by running the world, which is how you got every one above).
+extreme* (both directions, unless the direction was fixed before looking — the two readings of
+@sec-rep-sides), *produces* (you can always get it by running the world, which is how you got
+every one above).
 
 And the accounting rule you watched happen:
 
@@ -273,8 +335,20 @@ $$
 \mathbb{E}[\text{false positives}] = m_{\text{null}} \cdot \alpha
 $$
 
-The expected number of accidental discoveries is the number of truly-null questions times the
-threshold. You cannot know $m_{\text{null}}$ — but $m_{\text{null}} \le$ the number of tests, so
+Three symbols, each one you have already used. $\alpha$ (alpha) is the **threshold**: the
+p-value below which you call a site significant — 0.05 in every scan above, the `0.05` in
+`pvals < 0.05`. $m_{\text{null}}$ is the **number of tests where the null world is the truth** —
+the sites where nothing is going on: all 1,200 in the null scan, 1,140 in the graded list. (The
+letter $m$ for a count of tests is the standard one in the multiple-testing literature, and it
+collides with the methylation fraction $m$ in the code; the subscript is the reminder that this
+one counts questions, not molecules.) And $\mathbb{E}[\,\cdot\,]$ is the **expected value**:
+the long-run average of a quantity across many repetitions of the world — what `.mean()` over
+many runs approximates, and what the flat histogram guarantees here, since a fraction $\alpha$
+of truly-null tests land below $\alpha$.
+
+So the expected number of accidental discoveries is the number of truly-null questions times the
+threshold: $1140 \times 0.05 = 57$ was the promise behind the 50 false discoveries you graded.
+You cannot know $m_{\text{null}}$ in her data — but $m_{\text{null}} \le$ the number of tests, so
 $1200 \times 0.05 = 60$ is the ceiling on accidents, known *before any data arrives*. A scan's
 list should always be read next to that number.
 
