@@ -76,6 +76,11 @@ times, what happens to the answers?**
 
 ## The story
 
+Chapter 1 called the thing you built a *world*: a story of how the data came to be, written as
+code you can run, with the truth as an input. The word for that is a **model** — a deliberately
+simplified version of a process, built so you can run it and ask what it produces. Every world
+you built in @sec-simulating-a-process was one, and *model* is the word from here on.
+
 This unit's operation is **repeat**, and it composes what you already own. One site is last
 chapter's story twice: tumor's true fraction $m$, normal's true fraction $m$ — *the same $m$,
 because we are building the model in which nothing is going on* — each observed through finite
