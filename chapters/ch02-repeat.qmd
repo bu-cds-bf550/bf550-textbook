@@ -162,12 +162,21 @@ Sit with that histogram for a moment. Every one of those differences was produce
 Some sites under the null model differ by a full eight points of methylation — differences a
 reasonable person would call "clearly higher in tumor" if they met them one at a time.
 
+That histogram has a name. It is a **null distribution**: the results a null model produces
+when you run it — here, 1,200 differences from a model in which no site differs. Every
+observed difference in her data will be held against one. If you have met the **null
+hypothesis** in a statistics course, this is how the pieces connect: the null hypothesis is the
+*claim* that nothing is going on, stated in words; the null model is that claim written as code
+you can run; the null distribution is what comes out when you run it. Where a course would hand
+you a formula for that distribution, you will draw it by running the model — which is why you
+can always get one, for any story you can write down.
+
 ## Playing with the story
 
 Pick one site and make the question precise. Say its observed difference is 0.045. Is that
-surprising? You have the machine that answers it: run *that site's* null model many times and
-count how often nothing-at-all produces a difference at least that big — in either direction,
-since a difference of −0.045 is exactly as extreme as +0.045.
+surprising? You have the machine that answers it: run *that site's* null model many times —
+its own null distribution — and count how often nothing-at-all produces a difference at least
+that big, in either direction, since a difference of −0.045 is exactly as extreme as +0.045.
 
 ```{python}
 def null_differences(m, n_sims, rng):
@@ -188,7 +197,8 @@ print(f"nothing produces a difference ≥ {observed} about {p:.1%} of the time")
 ```
 
 That fraction is the **p-value** — nothing more exotic than *how often the null model beats your
-observation*. Around 8% here: mildly unusual, the kind of thing nothing-at-all does a few times
+observation*: the share of the null distribution at least as extreme as what you saw. Around 8%
+here: mildly unusual, the kind of thing nothing-at-all does a few times
 in every hundred tries. **Predict before running:** if you compute this for *all 1,200 sites of
 the null model* and histogram the p-values, what shape must appear? Not roughly — exactly. Think
 about what a p-value of 0.30 means, and how often the null model should produce something its own
