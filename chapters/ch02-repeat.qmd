@@ -78,14 +78,14 @@ times, what happens to the answers?**
 
 This unit's operation is **repeat**, and it composes what you already own. One site is last
 chapter's story twice: tumor's true fraction $m$, normal's true fraction $m$ — *the same $m$,
-because we are building the world where nothing is going on* — each observed through finite
+because we are building the model in which nothing is going on* — each observed through finite
 reads in finite samples. The whole experiment is that story repeated 1,200 times, one $m$ per
 site, spread across the genome's range.
 
-The world where nothing is going on has a name — the **null world** — and this unit's work is
-building it explicitly. It answers a question no amount of staring at her real data can: *what
-do purely accidental differences look like, at this depth, with these group sizes, across this
-many sites?* Whatever that world produces, her data must beat.
+The model in which nothing is going on has a name — the **null model** — and this unit's work
+is building it explicitly, as code you can run. It answers a question no amount of staring at
+her real data can: *what do purely accidental differences look like, at this depth, with these
+group sizes, across this many sites?* Whatever the null model produces, her data must beat.
 
 ## The story, as code
 
@@ -115,7 +115,7 @@ stretched to run between `low` and `high` and asked for `size` of them at once. 
 different jobs: `binomial` draws *counts* out of a process whose $m$ you supplied; `uniform`
 draws *values of $m$ itself*, spread evenly across a range with no value favored, which is how
 every site below gets its own methylation level. Nothing new happens statistically; the same
-worlds run faster, which is what this unit's operation demands.
+models run faster, which is what this unit's operation demands.
 
 One site's group difference, then 1,200 of them. The inner function is @sec-simulating-a-process
 compressed to its built-in form.
@@ -139,11 +139,11 @@ def null_scan(site_truths, n_samples, n_reads, rng):
 rng = np.random.default_rng(3)
 truths = rng.uniform(0.2, 0.8, 1200)        # each site its own methylation level...
 diffs = null_scan(truths, 30, 25, rng)      # ...identical in both groups
-print(f"largest difference in a world with nothing in it: {np.abs(diffs).max():.3f}")
+print(f"largest difference the null model produces: {np.abs(diffs).max():.3f}")
 ```
 
 ```{python}
-#| fig-cap: "1,200 tumor-minus-normal differences from a world where no site differs. None of this is biology."
+#| fig-cap: "1,200 tumor-minus-normal differences from the null model, where no site differs. None of this is biology."
 import matplotlib.pyplot as plt
 fig, ax = plt.subplots(figsize=(7, 3))
 ax.hist(diffs, bins=40, color="#2a78d6")
@@ -154,19 +154,19 @@ plt.show()
 ```
 
 Sit with that histogram for a moment. Every one of those differences was produced by *nothing*.
-Some sites in the nothing-world differ by a full eight points of methylation — differences a
+Some sites under the null model differ by a full eight points of methylation — differences a
 reasonable person would call "clearly higher in tumor" if they met them one at a time.
 
 ## Playing with the story
 
 Pick one site and make the question precise. Say its observed difference is 0.045. Is that
-surprising? You have the machine that answers it: run *that site's* null world many times and
+surprising? You have the machine that answers it: run *that site's* null model many times and
 count how often nothing-at-all produces a difference at least that big — in either direction,
 since a difference of −0.045 is exactly as extreme as +0.045.
 
 ```{python}
 def null_differences(m, n_sims, rng):
-    """Many runs of one site's null world: same true m for both groups."""
+    """Many runs of one site's null model: same true m for both groups."""
     diffs = []
     for _ in range(n_sims):
         tumor = group_fraction(m, 30, 25, rng)
@@ -182,11 +182,11 @@ p = at_least_as_extreme.mean()                        # fraction of True = the p
 print(f"nothing produces a difference ≥ {observed} about {p:.1%} of the time")
 ```
 
-That fraction is the **p-value** — nothing more exotic than *how often the null world beats your
+That fraction is the **p-value** — nothing more exotic than *how often the null model beats your
 observation*. Around 8% here: mildly unusual, the kind of thing nothing-at-all does a few times
 in every hundred tries. **Predict before running:** if you compute this for *all 1,200 sites of
-the null world* and histogram the p-values, what shape must appear? Not roughly — exactly. Think
-about what a p-value of 0.30 means, and how often the null world should produce something its own
+the null model* and histogram the p-values, what shape must appear? Not roughly — exactly. Think
+about what a p-value of 0.30 means, and how often the null model should produce something its own
 top 30% beats.
 
 ```{python}
@@ -254,7 +254,7 @@ plt.show()
 ```
 
 The one-sided p-value is almost exactly half the two-sided one — 4.2% against 8.6% — because
-the null world is symmetric: nothing-at-all overshoots upward about as often as downward, and
+the null model is symmetric: nothing-at-all overshoots upward about as often as downward, and
 the one-sided count simply declines to look at the downward half. Two consequences, and they are
 the same fact seen from two sides. A one-sided test has more power *in its direction*: the
 same observation clears p < 0.05 one-sided and fails it two-sided. And it is blind in the
@@ -272,7 +272,7 @@ seeing which way the difference went, you will measure later in this chapter.
 
 ## Where the numbers come from
 
-Now build her actual situation: a world that is *mostly* nothing plus a little something — 60
+Now build her actual situation: a model that is *mostly* nothing plus a little something — 60
 sites where tumor truly runs 0.07 higher, hidden among 1,140 where nothing happens. You know
 which is which, because you built it. Run the identical analysis and grade the discovery list:
 
@@ -321,13 +321,13 @@ against false ones admitted, and defending that trade is part of reporting the l
 
 Two pieces of shorthand this unit, both small. The p-value, said precisely:
 
-> *the p-value is the probability that the null world produces a result at least as extreme as
+> *the p-value is the probability that the null model produces a result at least as extreme as
 > the one observed.*
 
-Every word is load-bearing — *null world* (a model you built, of nothing happening), *at least as
-extreme* (both directions, unless the direction was fixed before looking — the two readings of
-@sec-rep-sides), *produces* (you can always get it by running the world, which is how you got
-every one above).
+Every word is load-bearing — *null model* (the story of nothing happening, built as code you can
+run), *at least as extreme* (both directions, unless the direction was fixed before looking — the
+two readings of @sec-rep-sides), *produces* (you can always get it by running the model, which is
+how you got every one above).
 
 And the accounting rule you watched happen:
 
@@ -337,12 +337,12 @@ $$
 
 Three symbols, each one you have already used. $\alpha$ (alpha) is the **threshold**: the
 p-value below which you call a site significant — 0.05 in every scan above, the `0.05` in
-`pvals < 0.05`. $m_{\text{null}}$ is the **number of tests where the null world is the truth** —
+`pvals < 0.05`. $m_{\text{null}}$ is the **number of tests where the null model is the truth** —
 the sites where nothing is going on: all 1,200 in the null scan, 1,140 in the graded list. (The
 letter $m$ for a count of tests is the standard one in the multiple-testing literature, and it
 collides with the methylation fraction $m$ in the code; the subscript is the reminder that this
 one counts questions, not molecules.) And $\mathbb{E}[\,\cdot\,]$ is the **expected value**:
-the long-run average of a quantity across many repetitions of the world — what `.mean()` over
+the long-run average of a quantity across many runs of the model — what `.mean()` over
 many runs approximates, and what the flat histogram guarantees here, since a fraction $\alpha$
 of truly-null tests land below $\alpha$.
 
@@ -368,7 +368,7 @@ I am treating wells as independent for the count question, and flagging now that
 wells share aquifers, and neighboring wells' results move together, which makes clusters of
 exceedance both more suspicious as contamination and more producible by shared noise.
 
-**Decompose.** (1) From each well's history, a null world: assay noise around that well's
+**Decompose.** (1) From each well's history, a null model: assay noise around that well's
 ordinary level. (2) The count question: simulate 200 wells' ordinary months, count exceedances,
 locate 9 in that distribution. (3) The which-wells question: per-well p-values, read against the
 expected number of accidents — with 200 wells at a 3% accident rate, six exceedances is the
@@ -394,9 +394,9 @@ unanswerable this early, and saying so is a finding.
 
 ## When the model is wrong
 
-Box's warning from @sec-simulating-a-process applies with a twist this unit: the null world *is
-a model* — the most important one you built — and everything the scan concluded assumed it was
-the right model of "nothing going on." Three ways that can fail.
+Box's warning from @sec-simulating-a-process applies with a twist this unit: the null model is
+the most important model you built, and everything the scan concluded assumed it was the right
+model of "nothing going on." Three ways that can fail.
 
 **Choosing the direction after seeing the data nearly doubles the accident rate.** The
 "at least as extreme in either direction" clause is not pedantry. Suppose an analyst computes a
@@ -430,13 +430,13 @@ together — methylation comes in coordinated regions, just as neighboring posit
 chromosome are inherited together (geneticists call that *linkage*). Our null drew every site
 independently. Correlated sites don't change any single p-value, but they change what a *list*
 means: a run of ten significant neighbors may be one biological event wearing ten hats, and the
-accident count fluctuates far more than independent-world arithmetic expects. When your
+accident count fluctuates far more than independent-sites arithmetic expects. When your
 discoveries arrive in clumps, count events, not tests, before celebrating.
 
 **And the null's own noise model can be too small for reality.** We built "nothing going on" as:
 same true fraction, read-sampling wobble only. Real samples wobble for more reasons than reads —
-sample handling, cell composition, day effects — so the real null world is *wider* than the one
-we simulated, and every accident count above is a floor, not a promise. What happens when the
+sample handling, cell composition, day effects — so the real null is *wider* than the model we
+simulated, and every accident count above is a floor, not a promise. What happens when the
 truth itself varies under the null — and how badly it breaks a scan exactly like this one — is
 the entire subject of the next chapter (@sec-nest).
 
