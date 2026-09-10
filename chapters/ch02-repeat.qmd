@@ -59,20 +59,19 @@ notice until unit 2 opens — read ahead at your own risk.
 
 ## The problem
 
-Your methylation collaborator is back, and the project has grown up. She now has **1,200 CpG
-sites** measured in **30 tumor samples and 30 normal samples** — at every site, in every sample,
-a read count and a methylated fraction, exactly the measurement you built in
-@sec-simulating-a-process. She wants the sites where tumor and normal genuinely differ, because
-the top of that list gets validated by pyrosequencing at real cost per site.
+The methylation project from @sec-simulating-a-process has grown. Your collaborator now has
+**1,200 CpG sites** measured in **30 tumor samples and 30 normal samples**, with a read count and
+a methylated fraction at every site in every sample. Each of those measurements is the one you
+built in chapter 1. She wants the sites where tumor and normal genuinely differ, because the
+top of that list gets validated by pyrosequencing at real cost per site.
 
 She has already looked, and the differences are *everywhere*: almost no site shows exactly the
-same fraction in both groups. Of course it doesn't — you spent last chapter measuring the wobble
-in any finite sample. Two groups of thirty will differ at every site by sampling variability
-alone, at a site where the biology is identical.
+same fraction in both groups. Chapter 1 explains why. Two groups of thirty samples differ at every
+site by sampling variability alone, even where the biology is identical.
 
-So the real question is not "which sites differ" — all of them do. It is: **which differences are
-larger than the wobble two identical groups would show — and when you ask that question 1,200
-times, what happens to the answers?**
+All 1,200 sites differ, so the question worth asking is a narrower one: **which differences are
+larger than two identical groups would show, and what happens to the answers when you ask that
+question 1,200 times.**
 
 ## The story
 
@@ -81,28 +80,28 @@ code you can run, with the truth as an input. The word for that is a **model** �
 simplified version of a process, built so you can run it and ask what it produces. Every world
 you built in @sec-simulating-a-process was one, and *model* is the word from here on.
 
-This unit's operation is **repeat**, and it composes what you already own. One site is last
-chapter's story twice: tumor's true fraction $m$, normal's true fraction $m$ — *the same $m$,
-because we are building the model in which nothing is going on* — each observed through finite
-reads in finite samples. The whole experiment is that story repeated 1,200 times, one $m$ per
-site, spread across the genome's range.
+This unit's operation is **repeat**, and it is built from parts you already have. One site is
+chapter 1's story told twice: tumor's true fraction $m$ and normal's true fraction $m$, each
+observed through finite reads in finite samples. The two fractions are the same $m$, because the
+model being built here is the one in which nothing is going on. The whole experiment is that
+story repeated 1,200 times, one $m$ per site, spread across the genome's range.
 
-The model in which nothing is going on has a name — the **null model** — and this unit's work
-is building it explicitly, as code you can run. It answers a question no amount of staring at
-her real data can: *what do purely accidental differences look like, at this depth, with these
-group sizes, across this many sites?* Whatever the null model produces, her data must beat.
+The model in which nothing is going on is called the **null model**, and this unit's work is
+building it explicitly, as code you can run. It answers a question her real data cannot: what do
+purely accidental differences look like, at this depth, with these group sizes, across this many
+sites? Her observed differences are then compared against the ones the null model produces.
 
 ## The story, as code
 
-Repeating last chapter's story two thousand times per site, across 1,200 sites, is where the
-pieces you hand-built earn their power tools. Three arrivals, each the one-call form of
-something you already own:
+Repeating the story from @sec-simulating-a-process two thousand times per site, across 1,200
+sites, is slow with the loops you hand-built there. Three new tools do the same jobs in one
+call each:
 
 ```{python}
 import numpy as np
 
 values = [0.6, 0.7, 0.5, 0.7]
-arr = np.array(values)             # a list, upgraded: arithmetic acts on all of it at once
+arr = np.array(values)             # arithmetic acts on every element at once
 print(arr / 2)
 print(arr.mean(), arr.std())       # chapter 1's average() and spread(), as built-ins
 rng = np.random.default_rng(7)
@@ -110,20 +109,21 @@ print(rng.binomial(80, 0.65, 5))   # five sequencing runs in one call
 print(rng.uniform(0.2, 0.8, 5))    # five methylation levels, anywhere between 0.2 and 0.8
 ```
 
-`np.array` turns a list into an **array**, and arithmetic on an array touches every element
-with no loop. The **reductions** `.mean()`, `.std()`, and `.sum()` collapse an array to one
-number — exactly what `average()` and `spread()` did in @sec-simulating-a-process, now at
-machine speed. And `rng.binomial(n, m, size)` runs the per-read loop you wrote there as a
-single call, one whole experiment per draw. Its neighbor `rng.uniform(low, high, size)` is
-chapter 1's `rng.random()` — a number anywhere between 0 and 1, every value equally likely —
-stretched to run between `low` and `high` and asked for `size` of them at once. The two do
-different jobs: `binomial` draws *counts* out of a process whose $m$ you supplied; `uniform`
-draws *values of $m$ itself*, spread evenly across a range with no value favored, which is how
-every site below gets its own methylation level. Nothing new happens statistically; the same
-models run faster, which is what this unit's operation demands.
+`np.array` turns a list into an **array**, and arithmetic on an array applies to every element
+without a loop. The **reductions** `.mean()`, `.std()`, and `.sum()` collapse an array to one
+number, which is what `average()` and `spread()` did in @sec-simulating-a-process, now at machine
+speed. `rng.binomial(n, m, size)` runs the per-read loop from that chapter as a single call, one
+whole experiment per draw. `rng.uniform(low, high, size)` extends chapter 1's `rng.random()` —
+*a number anywhere between 0 and 1, every value equally likely* — to run between `low` and `high`
+and to return `size` of them at once.
 
-One site's group difference, then 1,200 of them. The inner function is @sec-simulating-a-process
-compressed to its built-in form.
+The two draw different things. `binomial` draws *counts* out of a process whose $m$ you supplied.
+`uniform` draws *values of $m$ itself*, spread evenly across a range with no value favored, which
+is how every site below gets its own methylation level. The statistics are unchanged from chapter
+1; only the speed is different.
+
+The next chunk computes one site's group difference, then 1,200 of them. The inner function is
+chapter 1's simulator written in the built-in form.
 
 ```{python}
 def group_fraction(m, n_samples, n_reads, rng):
@@ -148,7 +148,7 @@ print(f"largest difference the null model produces: {np.abs(diffs).max():.3f}")
 ```
 
 ```{python}
-#| fig-cap: "1,200 tumor-minus-normal differences from the null model, where no site differs. None of this is biology."
+#| fig-cap: "1,200 tumor-minus-normal differences from the null model, in which no site truly differs. Every difference shown is sampling variability."
 import matplotlib.pyplot as plt
 fig, ax = plt.subplots(figsize=(7, 3))
 ax.hist(diffs, bins=40, color="#2a78d6")
@@ -158,25 +158,26 @@ ax.spines[["top", "right"]].set_visible(False)
 plt.show()
 ```
 
-Sit with that histogram for a moment. Every one of those differences was produced by *nothing*.
-Some sites under the null model differ by a full eight points of methylation — differences a
-reasonable person would call "clearly higher in tumor" if they met them one at a time.
+Every difference in that histogram was produced by a model in which no site truly differs. Some
+of those sites differ by a full eight points of methylation, which is a difference a reasonable
+person would call "clearly higher in tumor" on meeting it one at a time.
 
-That histogram has a name. It is a **null distribution**: the results a null model produces
-when you run it — here, 1,200 differences from a model in which no site differs. Every
-observed difference in her data will be held against one. If you have met the **null
-hypothesis** in a statistics course, this is how the pieces connect: the null hypothesis is the
-*claim* that nothing is going on, stated in words; the null model is that claim written as code
-you can run; the null distribution is what comes out when you run it. Where a course would hand
-you a formula for that distribution, you will draw it by running the model — which is why you
-can always get one, for any story you can write down.
+The histogram is a **null distribution**: the set of results a null model produces when you run
+it, here 1,200 differences from a model in which no site differs. Each observed difference in her
+data is compared against a distribution of this kind.
+
+Three terms are worth separating, because a statistics course introduces them in a different
+order. The **null hypothesis** is the claim that nothing is going on, stated in words. The null
+model is that claim written as code you can run. The null distribution is what comes out when you
+run it. A course would give you a formula for the distribution; here you obtain it by running the
+model, which works for any story you can write down.
 
 ## Playing with the story
 
-Pick one site and make the question precise. Say its observed difference is 0.045. Is that
-surprising? You have the machine that answers it: run *that site's* null model many times —
-its own null distribution — and count how often nothing-at-all produces a difference at least
-that big, in either direction, since a difference of −0.045 is exactly as extreme as +0.045.
+Pick one site and make the question precise. Say its observed difference is 0.045, and ask
+whether that is surprising. Run *that site's* null model many times to obtain its own null
+distribution, then count how often the null model produces a difference at least that big. Count
+it in either direction, because a difference of −0.045 is exactly as extreme as +0.045.
 
 ```{python}
 def null_differences(m, n_sims, rng):
@@ -196,16 +197,17 @@ p = at_least_as_extreme.mean()                        # fraction of True = the p
 print(f"nothing produces a difference ≥ {observed} about {p:.1%} of the time")
 ```
 
-That fraction is the **p-value** — nothing more exotic than *how often the null model beats your
-observation*: the share of the null distribution at least as extreme as what you saw. Around 8%
-here: mildly unusual, the kind of thing nothing-at-all does a few times
-in every hundred tries. **Predict before running:** if you compute this for *all 1,200 sites of
-the null model* and histogram the p-values, what shape must appear? Not roughly — exactly. Think
-about what a p-value of 0.30 means, and how often the null model should produce something its own
-top 30% beats.
+That fraction is the **p-value**: the share of the null distribution at least as extreme as the
+observation. It is around 8% here, which makes the observed difference mildly unusual, of a size
+the null model produces a few times in every hundred runs.
+
+**Predict before running.** Compute the p-value for all 1,200 sites of the null model and
+histogram the results. What shape appears? The answer is exact rather than approximate, so work
+it out from what a p-value of 0.30 means and how often the null model produces a result its own
+top 30% exceeds.
 
 ```{python}
-#| fig-cap: "P-values for 1,200 sites where nothing is going on. Flat is what honesty looks like."
+#| fig-cap: "P-values for 1,200 sites where nothing is going on. The distribution is flat, which is what an honest test produces under the null."
 rng = np.random.default_rng(11)
 pvals = np.empty(1200)
 for i, m in enumerate(truths):
@@ -223,22 +225,25 @@ plt.show()
 print(f"sites with p < 0.05: {(pvals < 0.05).sum()} of 1200")
 ```
 
-Flat — by construction, not coincidence: a p-value of 0.05 means "the null beats this 5% of the
-time," so under the null, 5% of p-values land below 0.05, 10% below 0.10, and so on. Which
-delivers the number that should worry you: in a scan with *nothing to find*, at the conventional
-p < 0.05, **dozens of sites come up "significant"** — 56 in the run above, against the
-$1200 \times 0.05 = 60$ the arithmetic promises. Not because anything is wrong with the
-test. Because you asked an honest 1-in-20 question 1,200 times.
+The histogram is flat by construction. A p-value of 0.05 means the null model produces a result
+that extreme 5% of the time, so under the null 5% of p-values land below 0.05, 10% below 0.10,
+and so on for every threshold.
+
+Flatness has a direct consequence for a large scan. In a scan with nothing to find, at
+the conventional p < 0.05, **dozens of sites come up "significant"**: 56 in the run above,
+against the $1200 \times 0.05 = 60$ the arithmetic gives. Nothing is wrong with the test. The
+cause is that an honest 1-in-20 question was asked 1,200 times.
 
 ### One direction or two? {#sec-rep-sides}
 
-Every p-value above counted the null runs *at least as extreme* as the observation, and the
-code decided what "extreme" meant: `np.abs(null) >= abs(obs)` — a run counts if it is as far
-from zero as the observation *in either direction*. That is the **two-sided** p-value, and it
-answers the question "does this site differ?" There is a second, narrower question — "is tumor
-*higher* at this site?" — and it has its own p-value: count only the runs that beat the
-observation *upward*. That is a **one-sided** p-value. Same 2,000 null runs as before; read
-them both ways:
+Every p-value above counted the null runs at least as extreme as the observation, and one line of
+code decided what "extreme" meant: `np.abs(null) >= abs(obs)` — *a run counts if it is as far from
+zero as the observation, in either direction*. The result is the **two-sided** p-value, and it
+answers the question "does this site differ?"
+
+A second, narrower question is "is tumor *higher* at this site?" Its p-value counts only the runs
+that exceed the observation upward, and it is called a **one-sided** p-value. The chunk below
+reads the same 2,000 null runs both ways.
 
 ```{python}
 #| fig-cap: "The same 2,000 null runs, read two ways. Colored bars are the runs each p-value counts; the dotted line is the observed 0.045."
@@ -268,28 +273,31 @@ left.set_ylabel("runs")
 plt.show()
 ```
 
-The one-sided p-value is almost exactly half the two-sided one — 4.2% against 8.6% — because
-the null model is symmetric: nothing-at-all overshoots upward about as often as downward, and
-the one-sided count simply declines to look at the downward half. Two consequences, and they are
-the same fact seen from two sides. A one-sided test has more power *in its direction*: the
-same observation clears p < 0.05 one-sided and fails it two-sided. And it is blind in the
-other: had this site gone the other way by the same 0.045, the "tumor higher" p-value would be
-about 96% — nothing to see, by design.
+The one-sided p-value is almost exactly half the two-sided one, 4.2% against 8.6%. The cause is
+that the null model is symmetric: it overshoots upward about as often as downward, and the
+one-sided count ignores the downward half.
+
+Halving the p-value has two effects, and they are consequences of the same arithmetic. A
+one-sided test has more power in the direction it was aimed, so the same observation clears
+p < 0.05 one-sided and fails it two-sided. It also reports nothing in the other direction. Had
+this site gone the other way by the same 0.045, the "tumor higher" p-value would be about 96%.
 
 Both versions are honest under the null. Run either over the 1,200 nothing-sites and the
-histogram is flat; the one-sided version just spends its whole 5% on one tail instead of
-splitting it. What makes a one-sided p-value legitimate is *when the direction was chosen*: it
-must come from a reason outside the data — this CpG sits in a promoter that gains methylation in
-tumors, so the only question worth asking is "higher?" — and it must be written down before the
-difference is computed. Decide before looking, and both are fair; the two-sided version is the
-default because it needs no such justification. What it costs to pick the direction *after*
-seeing which way the difference went, you will measure later in this chapter.
+histogram is flat, because the one-sided version spends its whole 5% on one tail rather than
+splitting it between two. What makes a one-sided p-value legitimate is *when the direction was
+chosen*. The reason must come from outside the data, as when a CpG sits in a promoter known to
+gain methylation in tumors and the only question worth asking is "higher?", and it must be
+written down before the difference is computed. Both tests are fair when the direction is fixed
+in advance, and the two-sided version is the default because it needs no such justification. The
+cost of picking the direction *after* seeing which way the difference went is measured later in
+this chapter.
 
 ## Where the numbers come from
 
-Now build her actual situation: a model that is *mostly* nothing plus a little something — 60
-sites where tumor truly runs 0.07 higher, hidden among 1,140 where nothing happens. You know
-which is which, because you built it. Run the identical analysis and grade the discovery list:
+Now build her actual situation: a model in which most sites are null and a few are not. Sixty
+sites have tumor running 0.07 higher, among 1,140 where nothing happens. You know which sites are
+which, because you set them. The chunk below runs the identical analysis and grades the discovery
+list against that known truth.
 
 ```{python}
 #| fig-cap: "The discovery list, graded against the truth only the simulator knows."
@@ -319,53 +327,60 @@ plt.show()
 print(f"list: {hits.sum()} sites — {real} real, {false} false — {false/hits.sum():.0%} of the list is noise")
 ```
 
-Read the composition: the scan found most of the real sites —
-and **almost half the list is false** — the accidents the flat histogram promised, right on
-schedule.
-Nothing was dishonest. Every p-value did precisely what it claims. The list is still half noise,
-because *real effects were rare and questions were plentiful* — 60 truths cannot outnumber the
-accidents that 1,140 nothings generate at 1-in-20.
+The scan found most of the real sites, and **almost half the list is false**. Those false
+discoveries are the accidents the flat histogram implies, in about the number the arithmetic
+gives. Every p-value did what it claims, and the list is still half noise, because real effects
+were rare and questions were plentiful: 60 truths cannot outnumber the accidents that 1,140 null
+sites generate at 1-in-20.
 
-That ratio — how much of the reported list is noise — is the number her pyrosequencing budget
-actually cares about, and notice what it depends on: not just the threshold, but **how rare true
-effects are**, which nobody knows in advance. Tighten the threshold to p < 0.01 and the accidents
-drop toward eleven while most real sites survive; every choice trades real discoveries kept
-against false ones admitted, and defending that trade is part of reporting the list.
+The fraction of the reported list that is noise is the number her pyrosequencing budget depends
+on, and it depends on two things rather than one. The threshold is one. The other is **how rare
+true effects are**, which nobody knows in advance. Tighten the threshold to p < 0.01 and the
+accidents drop toward eleven while most real sites survive. Every threshold trades real
+discoveries kept against false ones admitted, and defending that trade is part of reporting the
+list.
 
 ## The notation
 
-Two pieces of shorthand this unit, both small. The p-value, said precisely:
+This unit introduces two pieces of shorthand. The first states the p-value precisely:
 
 > *the p-value is the probability that the null model produces a result at least as extreme as
 > the one observed.*
 
-Every word is load-bearing — *null model* (the story of nothing happening, built as code you can
-run), *at least as extreme* (both directions, unless the direction was fixed before looking — the
-two readings of @sec-rep-sides), *produces* (you can always get it by running the model, which is
-how you got every one above).
+Each phrase in that sentence carries a specific meaning. *Null model* is the story of nothing
+happening, built as code you can run. *At least as extreme* covers both directions, unless the
+direction was fixed before looking, which is the distinction @sec-rep-sides draws. *Produces*
+means you obtain the probability by running the model, which is how every p-value above was
+computed.
 
-And the accounting rule you watched happen:
+The second is the accounting rule the graded list demonstrated:
 
 $$
 \mathbb{E}[\text{false positives}] = m_{\text{null}} \cdot \alpha
 $$
 
-Three symbols, each one you have already used. $\alpha$ (alpha) is the **threshold**: the
-p-value below which you call a site significant — 0.05 in every scan above, the `0.05` in
-`pvals < 0.05`. $m_{\text{null}}$ is the **number of tests where the null model is the truth** —
-the sites where nothing is going on: all 1,200 in the null scan, 1,140 in the graded list. (The
-letter $m$ for a count of tests is the standard one in the multiple-testing literature, and it
-collides with the methylation fraction $m$ in the code; the subscript is the reminder that this
-one counts questions, not molecules.) And $\mathbb{E}[\,\cdot\,]$ is the **expected value**:
-the long-run average of a quantity across many runs of the model — what `.mean()` over
-many runs approximates, and what the flat histogram guarantees here, since a fraction $\alpha$
-of truly-null tests land below $\alpha$.
+The rule uses three symbols, each of which you have already used. $\alpha$ (alpha) is the
+**threshold**, meaning the p-value below which you call a site significant. It was 0.05 in every
+scan above, written as the `0.05` in `pvals < 0.05`.
 
-So the expected number of accidental discoveries is the number of truly-null questions times the
-threshold: $1140 \times 0.05 = 57$ was the promise behind the 50 false discoveries you graded.
-You cannot know $m_{\text{null}}$ in her data — but $m_{\text{null}} \le$ the number of tests, so
-$1200 \times 0.05 = 60$ is the ceiling on accidents, known *before any data arrives*. A scan's
-list should always be read next to that number.
+$m_{\text{null}}$ is the **number of tests where the null model is the truth**, which is the
+number of sites where nothing is going on: all 1,200 in the null scan, and 1,140 in the graded
+list. The letter $m$ for a count of tests is standard in the multiple-testing literature, and it
+collides with the methylation fraction $m$ in the code. The subscript is a reminder that this $m$
+counts questions rather than molecules.
+
+$\mathbb{E}[\,\cdot\,]$ is the **expected value**, the long-run average of a quantity across
+many runs of the model. It is what `.mean()` over many runs approximates. The flat histogram is
+why the rule holds exactly here, since a fraction $\alpha$ of truly-null tests land below
+$\alpha$.
+
+The expected number of accidental discoveries is therefore the number of truly-null questions
+times the threshold. In the graded list that is $1140 \times 0.05 = 57$, against the 50 false
+discoveries the run actually produced.
+
+You cannot know $m_{\text{null}}$ in her data. You do know that $m_{\text{null}}$ is at most the
+number of tests, so $1200 \times 0.05 = 60$ is a ceiling on the accidents, and it is known before
+any data arrives. Report a scan's list next to that ceiling.
 
 ## A worked design
 
@@ -375,48 +390,57 @@ list should always be read next to that number.
 > excavating a well at significant cost, and false alarms burn community trust. The board asks:
 > **is contamination spreading, and which specific wells should we dig up?**
 
-**Frame.** Two questions wearing one sentence, and they need different machinery. "Is it
-spreading" is about the *count* — is 9-of-200 surprising given assay noise and each well's
-history? "Which wells" is 200 *individual* questions asked simultaneously — this month's
-scan is a 200-test experiment, and some exceedances are the assay's 1-in-whatever accidents.
-I am treating wells as independent for the count question, and flagging now that they are not —
-wells share aquifers, and neighboring wells' results move together, which makes clusters of
-exceedance both more suspicious as contamination and more producible by shared noise.
+**Frame.** The board's sentence contains two questions, and they need different methods. "Is it
+spreading" is a question about the *count*: is 9-of-200 surprising, given assay noise and each
+well's history? "Which wells" is 200 individual questions asked simultaneously, so this month's
+scan is a 200-test experiment in which some exceedances are the assay's accidents. I am treating
+wells as independent for the count question, and flagging now that they are not. Wells share
+aquifers, and neighboring wells' results move together, which makes a cluster of exceedances both
+more suspicious as contamination and more producible by shared noise.
 
 **Decompose.** (1) From each well's history, a null model: assay noise around that well's
 ordinary level. (2) The count question: simulate 200 wells' ordinary months, count exceedances,
 locate 9 in that distribution. (3) The which-wells question: per-well p-values, read against the
 expected number of accidents — with 200 wells at a 3% accident rate, six exceedances is the
-*baseline*, not a signal. (4) A decision rule that prices the asymmetry: digging up a clean well
-costs money; missing a contaminated one costs health — the threshold is not 0.05 by reflex.
+*baseline*, not a signal. (4) A decision rule that prices the asymmetry between the two
+errors, since digging up a
+clean well costs money and missing a contaminated one costs health. The threshold follows from
+that comparison rather than from convention.
 
-**Select.** The method must produce per-well evidence *and* the scan-wide accident count, and it
-must let the board move the threshold and watch both costs respond — a fixed verdict is worth
-less than the dial. Forward simulation from each well's own history does this. The alternative
-I am not taking is flagging wells above a fixed concentration cutoff, which I concede is simpler
-and auditable; it fails because wells differ in baseline and in assay noise, so one cutoff is
-strict for clean wells and blind for dirty ones.
+**Select.** The method must produce per-well evidence and the scan-wide accident count, and it
+must let the board move the threshold and watch both costs respond, because the board needs to
+set the threshold rather than receive a verdict. Forward simulation from each well's own history
+does all three. The alternative I am not taking is flagging wells above a fixed concentration
+cutoff, which is simpler and easier to audit. It fails because wells differ in baseline and in
+assay noise, so a single cutoff is strict for clean wells and blind for dirty ones.
 
-**Anticipate.** How could my answer be wrong, and how would I know? First: each well's "ordinary
-level" comes from its own history — if a well has been quietly contaminated all along, its
-history *is* the contamination, my null learns it, and the well becomes invisible; I would check
-wells whose baseline sits near the health limit by absolute standard, not just by surprise.
-Second: the aquifer correlation I set aside — a shared-noise month produces a cluster that my
-independent-wells count question over-reads as spreading; before alarming the board I would ask
-whether this month's 9 share a water table. Third: 9 versus 6 versus 7 is three months of a
-count whose ordinary wobble I have not yet measured — the trend question may simply be
-unanswerable this early, and saying so is a finding.
+**Anticipate.** Three ways the answer could be wrong, and how I would find out.
+
+First, each well's "ordinary level" comes from its own history. If a well has been contaminated
+throughout that history, the history *is* the contamination, so the contaminated level becomes
+the null model's baseline and the well becomes invisible to the analysis. I would check every
+well whose baseline sits near the health limit against that absolute standard, and not only
+against its own past.
+
+Second, the aquifer correlation I set aside. A month of shared noise produces a cluster of
+exceedances, and a count question that assumes independent wells reads that cluster as spreading
+contamination. Before alarming the board I would ask whether this month's 9 wells share a water
+table.
+
+Third, 9 versus 6 versus 7 is three months of a count whose ordinary variation I have not
+measured. The trend question may be unanswerable this early, and reporting that it is
+unanswerable is itself a finding.
 
 ## When the model is wrong
 
-Box's warning from @sec-simulating-a-process applies with a twist this unit: the null model is
-the most important model you built, and everything the scan concluded assumed it was the right
-model of "nothing going on." Three ways that can fail.
+Box's warning from @sec-simulating-a-process applies to the null model in particular. Everything
+the scan concluded rests on the null model being the right model of "nothing going on," and there
+are three ways it can fail to be.
 
-**Choosing the direction after seeing the data nearly doubles the accident rate.** The
-"at least as extreme in either direction" clause is not pedantry. Suppose an analyst computes a
-one-directional p-value — but picks the direction *after looking at which way the difference
-went*. Every test is still individually defensible-looking. Watch the accident rate:
+**Choosing the direction after seeing the data nearly doubles the accident rate.** Suppose an
+analyst computes a one-directional p-value, and picks the direction after looking at which way
+the difference went. Each test still looks individually defensible. The chunk below measures what
+the accident rate actually becomes.
 
 ```{python}
 rng = np.random.default_rng(23)
@@ -433,27 +457,29 @@ for _ in range(2000):
 print(f"accident rate with direction-after-looking: {flagged/2000:.3f}  (honest target: 0.05)")
 ```
 
-With perfectly continuous measurements the rate is exactly double; the discreteness of counts
-spares a little of it here. Nothing in any single computation looks wrong; the model of the
-*procedure* is what's wrong —
-the analysis answered a question shaped by the answer. The general form of this failure (chosen
-thresholds, chosen subgroups, chosen outcomes — all chosen after looking) is among the most
-common ways honest people produce false discoveries.
+With perfectly continuous measurements the rate is exactly double, and the discreteness of
+counts recovers a little of it here. No single computation in the loop is wrong. What is wrong is
+the model of the *procedure*: the direction was chosen using the data, so the question asked
+depended on the answer. The same failure takes other forms — a threshold, a subgroup, or an
+outcome chosen after looking — and together they are among the most common ways honest analysts
+produce false discoveries.
 
-**The 1,200 questions are not 1,200 independent questions.** Neighboring CpG sites travel
-together — methylation comes in coordinated regions, just as neighboring positions on a
-chromosome are inherited together (geneticists call that *linkage*). Our null drew every site
-independently. Correlated sites don't change any single p-value, but they change what a *list*
-means: a run of ten significant neighbors may be one biological event wearing ten hats, and the
-accident count fluctuates far more than independent-sites arithmetic expects. When your
-discoveries arrive in clumps, count events, not tests, before celebrating.
+**The 1,200 questions are not 1,200 independent questions.** Methylation comes in coordinated
+regions, so neighboring CpG sites tend to move together, in the same way that neighboring
+positions on a chromosome are inherited together (geneticists call that *linkage*). The null
+model here drew every site independently.
 
-**And the null's own noise model can be too small for reality.** We built "nothing going on" as:
-same true fraction, read-sampling wobble only. Real samples wobble for more reasons than reads —
-sample handling, cell composition, day effects — so the real null is *wider* than the model we
-simulated, and every accident count above is a floor, not a promise. What happens when the
-truth itself varies under the null — and how badly it breaks a scan exactly like this one — is
-the entire subject of the next chapter (@sec-nest).
+Correlation leaves each individual p-value correct and changes what a *list* means. A run of ten
+significant neighbors may be a single biological event reported ten times, and the accident count
+varies far more between scans than the independent-sites arithmetic predicts. When discoveries
+arrive in clusters, count events rather than tests.
+
+**The null model's noise may be too small.** This chapter built "nothing going on" as one true
+fraction per site with read-sampling variability only. Real samples vary for more reasons than
+reads, including sample handling, cell composition and day-to-day effects, so the real null
+distribution is *wider* than the one simulated here. Every accident count above is therefore a
+floor rather than an estimate. @sec-nest takes up what happens when the truth itself varies under
+the null, and how much that widening changes a scan like this one.
 
 ## Practice problems
 
@@ -465,10 +491,10 @@ A null scan of **5,000** sites, same settings as the chapter. Before running any
 shape is the p-value histogram, how many sites land below p = 0.01, and below p = 0.05?
 
 ::: {.callout-tip collapse="true" title="Worked solution"}
-Flat; about **50** below 0.01; about **250** below 0.05. No simulation needed — under the null,
-p-values are uniform, so the count below $\alpha$ is $5000\alpha$ in expectation. If your scan of
-real data shows a flat histogram with a spike near zero, the spike's *excess over flat* is your
-first estimate of how much true signal exists — worth remembering.
+Flat, with about **50** below 0.01 and about **250** below 0.05. No simulation is needed: under
+the null, p-values are uniform, so the expected count below $\alpha$ is $5000\alpha$. A related
+fact is worth remembering. If a scan of real data shows a flat histogram with a spike near zero,
+the spike's excess over flat is a first estimate of how much true signal the scan contains.
 :::
 
 ### 2.2 · Modify the story {#sec-rep-2}
@@ -478,12 +504,13 @@ which numbers in the list composition change, in which direction — and which n
 does not move?
 
 ::: {.callout-tip collapse="true" title="Worked solution"}
-Power rises: group means tighten threefold in variance, so the 0.07 shifts stand out further and
-essentially all 60 true sites are caught. The false-positive count **does not move**: truly-null
-sites produce p < 0.05 five percent of the time at *any* sample size — bigger samples make real
-effects easier to see, not accidents rarer. So the list grows more honest (60-ish real against
-~57 accidents) but the accidents never leave. The only levers on the false count are the
-threshold and the number of null questions asked.
+Power rises. Group means tighten threefold in variance, so the 0.07 shifts stand out further and
+essentially all 60 true sites are caught. The false-positive count **does not move**, because
+truly-null sites produce p < 0.05 five percent of the time at any sample size. Larger samples
+make real effects easier to detect and leave the accident rate where it was. The list therefore
+improves in composition, at roughly 60 real against ~57 accidents, while the accidents themselves
+remain. The two things that change the false count are the threshold and the number of null
+questions asked.
 :::
 
 ### 2.3 · Hand-calculate {#sec-rep-p3}
@@ -492,11 +519,12 @@ Five honest tests, all null, threshold 0.05. By hand: the probability that *at l
 up significant. Then: the expected number that do.
 
 ::: {.callout-tip collapse="true" title="Worked solution"}
-Each test stays quiet with probability 0.95; all five stay quiet with $0.95^5 \approx 0.774$; so
-at least one fires with probability $1 - 0.774 = \mathbf{0.226}$ — nearly a coin flip's worth of
-risk from just five questions. Expected count: $5 \times 0.05 = 0.25$. Both numbers come from the
-same two facts, multiplied — no simulation, no software, and they scale in your head: at 100
-tests, "at least one" is a near-certainty ($1 - 0.95^{100} \approx 0.994$).
+Each test stays quiet with probability 0.95, so all five stay quiet with probability
+$0.95^5 \approx 0.774$, and at least one fires with probability $1 - 0.774 = \mathbf{0.226}$.
+Five questions therefore carry a 22.6% chance of at least one false positive. The expected
+count is $5 \times 0.05 = 0.25$. Both numbers follow from multiplying the same two facts, with no
+simulation and no software, and they extend by hand: at 100 tests, at least one false positive is
+nearly certain, at $1 - 0.95^{100} \approx 0.994$.
 :::
 
 ### 2.4 · Spot the mismatch {#sec-rep-p4}
@@ -505,13 +533,13 @@ A paper reports: *"Of 12,000 genes tested, 640 reached p < 0.05. Since chance pr
 identified 40 genes whose expression truly changed."* The arithmetic is right. What is wrong?
 
 ::: {.callout-tip collapse="true" title="Worked solution"}
-The subtraction lives at the level of *counts*; the claim lives at the level of *genes* — and
-nothing connects them. An excess of 40 over the expected 600 is (weak) evidence that some signal
-exists somewhere, but the 640 names on the list are ~600 accidents and ~40 truths *thoroughly
-shuffled together*, and the analysis contains nothing that says which are which. "We identified
-40 genes" asserts an identification that was never performed. The honest sentence: "the excess
-suggests on the order of 40 real changes; individually, no gene on this list is more than about
-6% likely to be one of them without further evidence."
+The subtraction is performed on *counts*, and the claim is made about *genes*. Nothing in the
+analysis connects the two levels. An excess of 40 over the expected 600 is weak evidence that
+some signal exists somewhere in the scan, but the 640 names on the list are approximately 600
+accidents and 40 truths shuffled together, and the analysis contains no step that distinguishes
+them. "We identified 40 genes" claims an identification that was never performed. An honest
+version reads: "the excess suggests on the order of 40 real changes; individually, no gene on
+this list is more than about 6% likely to be one of them without further evidence."
 :::
 
 ### 2.5 · Read the notation {#sec-rep-p5}
@@ -524,8 +552,8 @@ scan at $\alpha = 0.01$, and one sentence for a collaborator deciding whether to
 ```{python}
 print(20000 * 0.01)
 ```
-Sentence: "even if *nothing* in your experiment changed, this scan hands you about 200 genes at
-p < 0.01 — so a 180-gene list is not evidence of anything yet; it is *fewer* discoveries than
-nothing-at-all typically produces, and the list needs a different threshold or a different
+Sentence: "even if nothing in your experiment changed, this scan produces about 200 genes at
+p < 0.01, so a 180-gene list is fewer discoveries than the null model typically produces on its
+own. The list is not yet evidence of anything, and it needs a different threshold or a different
 design before anyone spends money on it."
 :::
