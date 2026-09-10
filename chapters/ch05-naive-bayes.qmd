@@ -167,8 +167,8 @@ values 0–40 and thousands of simulated reads matched. Add features and the
 matches thin exponentially; by twenty, the corner of the world that looks
 exactly like your read is empty.
 
-This is where the independence assumption earns its keep. If the twenty
-features are independent given the class, then the probability of the whole
+Independence is the assumption that makes the calculation possible. If the
+twenty features are independent given the class, then the probability of the whole
 profile is **the product of one probability per feature** — present ones
 contribute $p_k$, absent ones $1 - p_k$:
 

@@ -80,8 +80,8 @@ the same computation.
 
 You have built a story like this before. In @sec-nest, practice problem 3.2,
 each day was quiet or flaring — a hidden two-state layer, then data drawn
-given the state. This chapter's story is that story, with the state promoted
-from scenery to the thing you care about:
+given the state. This chapter tells the same story, with the hidden state as
+the quantity you are trying to estimate rather than part of the setup:
 
 1. **Nature flips a weighted coin.** A fraction $\pi_A$ of the reads in the
    run come from organism A — because that is A's share of the DNA in the
@@ -479,8 +479,8 @@ prior back to you. You met the seed of this in @sec-simulating-a-process's
 practice problem 1.2, where one site could not distinguish two populations
 from their blend. The resolution limit is a property of the *world* — more
 data narrows it but no algorithm abolishes it, and a method that returns
-confident labels anyway is not resolving the mixture; it is decorating the
-coin. @sec-clustering inherits this limit with the labels gone, where it
+confident labels anyway is reporting a confidence the data cannot support.
+@sec-clustering inherits this limit with the labels gone, where it
 becomes the question "how many clusters are really here?"
 
 **Third: the labels themselves are a model.** Every estimate in this chapter
@@ -582,10 +582,10 @@ wants it. The arithmetic is correct. What is wrong, and in exactly which
 worlds is it safe anyway?
 
 ::: {.callout-tip collapse="true" title="Worked solution"}
-It reports a likelihood ratio dressed as a posterior — the coin never
-enters. That is why it shines on the mock community: at $\pi_A = 0.5$ the
-prior ratio is 1 and the two quantities coincide, so no even-blend test can
-ever expose the omission. In the screening world the missing factor is
+It reports a likelihood ratio as though it were a posterior, because the coin
+never enters. The omission is invisible on the mock community: at $\pi_A = 0.5$
+the prior ratio is 1 and the two quantities coincide, so no even-blend test can
+ever expose it. In the screening world the missing factor is
 1-to-999, and its "probability 0.83" reads are 0.5% A. It is safe exactly
 where the prior is flat — and nowhere else. The violated assumption is not
 in the arithmetic but in the words on the output: a likelihood answers "how
