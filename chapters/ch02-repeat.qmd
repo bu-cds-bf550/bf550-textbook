@@ -50,12 +50,6 @@ practice_problems:
 ---
 
 # Repeat: null distributions and the thousand-test trap {#sec-repeat}
-::: {.callout-warning title="Under construction"}
-<!-- banner:under-construction -->
-This chapter is drafted but **not yet instructor-reviewed**. Content may change without
-notice until unit 2 opens — read ahead at your own risk.
-:::
-
 
 ## The problem
 
