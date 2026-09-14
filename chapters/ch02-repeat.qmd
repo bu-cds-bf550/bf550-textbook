@@ -3,7 +3,7 @@ id: repeat
 unit: 2
 act: I
 operation: "repeat"
-concepts: [null-distribution, p-value, multiple-testing, false-discovery, repeat-composition, flat-p-histogram, direction-after-looking]
+concepts: [null-distribution, p-value, multiple-testing, false-discovery, repeat-composition, flat-p-histogram, p-value-floor, direction-after-looking]
 prerequisites: [simulating-a-process, sampling-variability]
 notation_introduced: [p-value, expected-false-positives]
 constructs_introduced: [slicing, enumerate-positions, numpy-array, array-reductions, rng-distribution-draws]
@@ -285,6 +285,56 @@ written down before the difference is computed. Both tests are fair when the dir
 in advance, and the two-sided version is the default because it needs no such justification. The
 cost of picking the direction *after* seeing which way the difference went is measured later in
 this chapter.
+
+### How small can a simulated p-value get? {#sec-rep-floor}
+
+A p-value computed by counting has a floor. With 2,000 null runs, the count is a whole number
+out of 2,000, so the p-value moves in steps of 1/2,000, and the smallest value it can report is
+1/2,000, for an observation that exactly one run matches or beats. An observation more extreme
+than every run gets a count of zero, and the code prints a p-value of 0.
+
+```{python}
+rng = np.random.default_rng(7)
+null = null_differences(0.5, 2000, rng)                # the same 2,000 runs once more
+print(f"most extreme null run: {np.abs(null).max():.3f}")
+for observed in (0.045, 0.080, 0.100):
+    p = np.mean(np.abs(null) >= observed)
+    print(f"observed {observed:.3f}: p = {p:.4f}")
+```
+
+A printed 0 does not mean the null model cannot produce the observation. It means the null model
+did not produce it in 2,000 tries. A difference of 0.10 between two identical groups is possible
+at this depth; it is rare, and 2,000 runs were not enough to see one. The floor is set by the
+number of null runs and by nothing about the site. One common repair counts one extra run in the
+numerator and the denominator, reporting $(k + 1)/(n + 1)$ instead of $k/n$. A p-value reported
+that way is never zero, and here it is 1/2,001, which says what the count says: rarer than one in
+two thousand, by an amount the run count cannot resolve.
+
+Fewer runs make coarser p-values. With 20 null runs the p-value moves in steps of 0.05, so the
+only value below 0.05 is 0 itself. The scan from the flat histogram, rerun with 20 null runs per
+site instead of 300, shows what that costs.
+
+```{python}
+rng = np.random.default_rng(11)
+pvals_20 = np.empty(1200)
+for i, m in enumerate(truths):
+    obs = group_fraction(m, 30, 25, rng) - group_fraction(m, 30, 25, rng)
+    null = null_differences(m, 20, rng)                # 20 runs, not 300
+    pvals_20[i] = np.mean(np.abs(null) >= abs(obs))
+print(f"p < 0.05: {(pvals_20 < 0.05).sum()}   p < 0.01: {(pvals_20 < 0.01).sum()}   "
+      f"p exactly 0: {(pvals_20 == 0).sum()}")
+```
+
+The three counts are the same number. Every site below 0.05 sits at exactly 0, so tightening the
+threshold from 0.05 to 0.01 changes nothing, because there is no p-value between the two for the
+stricter threshold to exclude. The same scan at 300 runs put 56 sites below 0.05, 6 below 0.01,
+and 4 at exactly 0. The rule that follows is about planning: choose enough null runs that the
+threshold you care about sits many steps above the floor. A threshold of 0.05 is workable at a
+few hundred runs; a threshold of 0.01 wants thousands. The property returns wherever a null
+distribution is built by running something many times, which is every null in this book. In
+chapter 6 the number of label shuffles sets the same floor, and in chapter 9 a scan of thousands
+of genes ranked by p-value finds hundreds of them tied at 0 unless the runs are many or the
+p-values come from a fitted distribution instead.
 
 ## Where the numbers come from
 
