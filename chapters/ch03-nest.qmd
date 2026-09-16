@@ -374,7 +374,7 @@ bracket is $1 + 4999/101 \approx 50.5$, so the sd should be
 $\sqrt{50.5} \approx 7.1$ times the binomial 16.8, or about 119. Scroll up to
 the candidate-spread figure: the $\nu=100$ bar sits at that height.
 
-The formula also confirms what the depth dial showed: the bracket *grows*
+The formula also confirms what the depth experiment showed: the bracket *grows*
 with $n$. More reads per day make the count-scale gap between the binomial
 and the data wider rather than narrower, so depth magnifies overdispersion
 instead of curing it.
@@ -485,8 +485,8 @@ produce. Here that property is the spread. A test on the mean would pass and
 would be the wrong test.
 
 **Third: "we'll sequence deeper" buys nothing for the variability
-question.** The depth dial showed it and the bracket $1+(n-1)\rho$ proved
-it. Past the point where sampling noise drops below the truth's own spread,
+question.** The depth experiment showed it and the bracket $1+(n-1)\rho$
+proved it. Past the point where sampling noise drops below the truth's own spread,
 additional depth buys precision about individual days and nothing about how
 the days differ. If day-to-day variation is what you study, replicate *days*
 rather than reads.
@@ -494,7 +494,7 @@ rather than reads.
 In @sec-glms the same gap, counts more variable than one level of randomness
 predicts, reappears as the reason RNA-seq tools model genes with a negative
 binomial, which is a Poisson whose rate is itself a draw. You will have
-built that machinery here, a level at a time.
+built that model here, a level at a time.
 
 ## Practice problems
 
