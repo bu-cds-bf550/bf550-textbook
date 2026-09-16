@@ -35,7 +35,9 @@ for path in sorted(glob.glob("chapters/*.qmd")) + ["index.qmd"]:
                 print(f"L1 {path}: missing {missing}"); fail += 1
             if "title" in fm:
                 print(f"L1 {path}: frontmatter title renders a duplicate heading — title lives in the H1"); fail += 1
-            h1s = re.findall(r"^# .*$", text, re.M)
+            # Strip fenced code first: a column-0 Python comment is not a heading.
+            prose_only = re.sub(r"```.*?```", "", text, flags=re.S)
+            h1s = re.findall(r"^# .*$", prose_only, re.M)
             if len(h1s) != 1 or f'{{#sec-{fm.get("id")}}}' not in h1s[0]:
                 print(f"L1 {path}: need exactly one H1 ending {{#sec-{fm.get('id')}}}, found {len(h1s)}"); fail += 1
             chapter_meta.append((fm.get("unit", 99), path, fm))
