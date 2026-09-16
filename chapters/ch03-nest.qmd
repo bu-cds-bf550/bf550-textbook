@@ -618,6 +618,12 @@ lam = rng.gamma(shape=2, scale=2, size=5)   # each unit draws its own rate
 y = rng.poisson(lam)                        # then counts from that rate
 print(np.round(lam, 2), y)
 ```
+**Rate or scale.** The second number in $\mathrm{Gamma}(2,\ 1/2)$ is a rate, and
+`rng.gamma` does not take a rate. It takes a scale, which is the rate's reciprocal, so a
+rate of $1/2$ becomes `scale=2`. Check your reading against the mean, which is shape times
+scale, or $2 \times 2 = 4$ here. Sources differ on which of the two they write, and the
+mean is the quickest way to tell them apart.
+
 Sentence: "each sample has its own underlying rate, drawn from a spread of
 plausible rates, and the count we observe is Poisson noise around that
 sample's rate." This pair, a Gamma-distributed rate inside a Poisson, is
