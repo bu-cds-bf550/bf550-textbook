@@ -1,10 +1,11 @@
 # Runtime for rendering the book. CI renders every chapter, so a chapter that imports
 # something not pinned here fails the build for everyone -- add the dependency in the same
 # commit as the chapter that needs it. Chapters 6-12 (evaluation, regression, GLMs, trees,
-# PCA, clustering) will need scikit-learn and possibly pandas; they are not pinned yet
-# because nothing imports them. scipy arrived with ch04's Toolbox box (17 Sep 2026).
+# PCA, clustering) will need scikit-learn and possibly pandas. scikit-learn arrived with ch05's
+# Toolbox (28 Sep 2026); pandas is not pinned because nothing imports it. scipy arrived with ch04's Toolbox (17 Sep 2026).
 numpy==2.1.*
 scipy==1.14.*
 matplotlib==3.9.*
+scikit-learn==1.5.*    # ch05's Toolbox (BernoulliNB), 28 Sep 2026; chapters 6-12 need it too
 jupyter==1.*
 pyyaml==6.*
