@@ -52,12 +52,6 @@ practice_problems:
 ---
 
 # Naive Bayes: classification as a generative story {#sec-naive-bayes}
-::: {.callout-warning title="Under construction"}
-<!-- banner:under-construction -->
-This chapter is drafted but **not yet instructor-reviewed**. Content may change without
-notice until unit 5 opens. Read ahead at your own risk.
-:::
-
 
 ## The problem
 
