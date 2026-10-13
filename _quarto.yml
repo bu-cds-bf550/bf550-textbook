@@ -13,12 +13,6 @@ book:
     - chapters/ch04-mix.qmd
     - chapters/ch05-naive-bayes.qmd
     - chapters/ch06-evaluation.qmd
-    - chapters/ch07-logistic-regression.qmd
-    - chapters/ch08-linear-regression.qmd
-    - chapters/ch09-glms.qmd
-    - chapters/ch10-trees.qmd
-    - chapters/ch11-pca.qmd
-    - chapters/ch12-clustering.qmd
   appendices:
     - appendices/notation-decoder.qmd
     - appendices/toolbox.qmd

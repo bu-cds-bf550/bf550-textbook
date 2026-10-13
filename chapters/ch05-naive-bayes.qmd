@@ -241,7 +241,7 @@ how many times a k-mer occurred in the read is discarded.
 One more assumption carries over from @sec-mix. In the simulation, we know
 which class produced each read, because we wrote the simulator. The training
 data has labels because each training read was aligned to a reference. In
-@sec-clustering we will meet the same model with the labels removed, and
+Chapter 12 we will meet the same model with the labels removed, and
 there the per-read posterior this chapter computes becomes each read's soft
 assignment to a class. In this chapter the labels are known.
 
@@ -549,7 +549,7 @@ that this profile came from an rRNA read is 0.92, and the last line reveals
 that the read's true label is rRNA. The remaining 0.08 says that among reads
 with this profile, about eight in a hundred are non-rRNA reads, so a rule that
 deletes every read with this profile deletes some real signal. This per-read
-posterior is the number @sec-clustering will call a soft assignment.
+posterior is the number Chapter 12 will call a soft assignment.
 
 Every number in that calculation came from tables we typed into the
 simulator. The collaborator has no such tables, only labeled reads, and the
@@ -934,7 +934,7 @@ term per k-mer, and no loop can compute it.
 
 Taking logarithms turns $\Pi$ into $\Sigma$: the sum the Implementation note
 computed, plus the logarithm of the share, plus a constant that is the same
-for every class. @sec-logistic-regression works on that scale from its first
+for every class. Chapter 7 works on that scale from its first
 page. It models the boundary between the classes directly, and its contrast
 is this chapter's **generative classifier**, a classifier that models how
 each class produces its data and then asks which class produced this read.

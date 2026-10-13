@@ -491,7 +491,7 @@ additional depth buys precision about individual days and nothing about how
 the days differ. If day-to-day variation is what you study, replicate *days*
 rather than reads.
 
-In @sec-glms the same gap, counts more variable than one level of randomness
+In Chapter 9 the same gap, counts more variable than one level of randomness
 predicts, reappears as the reason RNA-seq tools model genes with a negative
 binomial, which is a Poisson whose rate is itself a draw. You will have
 built that model here, a level at a time.
@@ -623,6 +623,6 @@ plausible rates, and the count we observe is Poisson noise around that
 sample's rate." This pair, a Gamma-distributed rate inside a Poisson, is
 called the negative binomial. It is the beta-binomial's counterpart for
 open-ended counts and the model under the standard tools for deciding which
-genes changed between conditions, which @sec-glms builds properly. You have
+genes changed between conditions, which Chapter 9 builds properly. You have
 just simulated it in three lines.
 :::

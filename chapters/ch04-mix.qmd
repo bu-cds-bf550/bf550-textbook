@@ -635,7 +635,7 @@ limit in @sec-simulating-a-process's practice problem 1.2, where one site
 could not distinguish two populations from their blend. The resolution limit
 is a property of the two compositions themselves. More data narrows it, no
 algorithm removes it, and a method that returns confident labels anyway is
-reporting a confidence the data do not support. @sec-clustering inherits
+reporting a confidence the data do not support. Chapter 12 inherits
 this limit with the labels gone, where it becomes the question of how many
 clusters are really present.
 
